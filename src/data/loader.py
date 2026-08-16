@@ -18,6 +18,10 @@ SOURCE_BOTH: str = "both"
 SOURCE_SHOTS_ONLY: str = "shots only"
 SOURCE_PICKS_ONLY: str = "picks only"
 
+#: Suffix given to the picks copy of a column both files carry. Deliberately not
+#: `_picks`, which is how real columns such as `handler_total_picks` end.
+DUPLICATE: str = "__from_picks"
+
 
 @st.cache_data(show_spinner=False)
 def load_shots() -> pd.DataFrame:
@@ -51,6 +55,51 @@ def load_shot_profiles() -> pd.DataFrame:
     merged = merged.drop(columns=["_merge", *schema.REDUNDANT_IDENTIFIERS], errors="ignore")
 
     return aggregate.derive_shot_features(merged)
+
+
+@st.cache_data(show_spinner=False)
+def load_pick_profiles() -> pd.DataFrame:
+    """Return one row per player of the pick-and-roll file, extras derived.
+
+    The picks file stands on its own here: the lens already says which role is
+    being looked at, so nothing from the shooting file is needed to read it.
+    """
+    return aggregate.derive_pick_features(
+        load_picks().drop(columns=list(schema.REDUNDANT_IDENTIFIERS), errors="ignore")
+    )
+
+
+@st.cache_data(show_spinner=False)
+def load_all_profiles() -> pd.DataFrame:
+    """Both files on one row per player, joined on `player_id`.
+
+    The join is outer and its provenance kept: 288 players appear in both files,
+    4 only in the picks file and 7 only in the shooting one. Dropping either side
+    silently would quietly narrow the search the shortlist runs.
+    """
+    shots, picks = load_shots(), load_picks()
+
+    # The two files are joined first and the derived columns computed after: some
+    # of them read across the join, such as the role a player mostly plays.
+    merged = shots.merge(
+        picks, on=schema.PLAYER_ID, how="outer", suffixes=("", DUPLICATE), indicator=True
+    )
+
+    # A player present only in the picks file would otherwise carry no name: the
+    # identifiers exist on both sides, so the picks copy fills the gap. Note that
+    # `games_played` counts games with a tracked event *in that file*, so the
+    # shooting count is kept when both exist rather than mixing the two.
+    for column in schema.SHARED_IDENTIFIERS:
+        twin = column + DUPLICATE
+        if twin in merged.columns:
+            merged[column] = merged[column].fillna(merged[twin]).infer_objects(copy=False)
+    merged = merged.drop(columns=[c for c in merged.columns if c.endswith(DUPLICATE)])
+    merged[SOURCE] = merged["_merge"].map(
+        {"both": SOURCE_BOTH, "left_only": SOURCE_SHOTS_ONLY, "right_only": SOURCE_PICKS_ONLY}
+    )
+    merged = merged.drop(columns=["_merge", *schema.REDUNDANT_IDENTIFIERS], errors="ignore")
+
+    return aggregate.derive_pick_features(aggregate.derive_shot_features(merged))
 
 
 def teams(frame: pd.DataFrame) -> list[str]:

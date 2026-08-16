@@ -58,6 +58,16 @@ DERIVED_DEFINITIONS: dict[str, str] = {
         "arc and outside the restricted area. Computed as short_midrange_paint_attempt_rate "
         "+ long_midrange_attempt_rate."
     ),
+    schema.pick_column(schema.ROLE_HANDLER_PREFIX, "picks_per_game"): (
+        "On-ball screens the player used as the ball handler, per game with a tracked event."
+    ),
+    schema.pick_column(schema.ROLE_SCREENER_PREFIX, "picks_per_game"): (
+        "On-ball screens the player set, per game with a tracked event."
+    ),
+    schema.FOULED_RATE: (
+        "Share of the player's field goal attempts on which he was fouled. "
+        "Computed as fouled_fga / attempts."
+    ),
     schema.PRIMARY_ROLE: (
         "Whether the player was more often the ball handler or the screener in pick-and-roll. "
         "The dataset carries no position, so this is the closest available stand-in."
@@ -93,8 +103,15 @@ def definition(column: str, dataset: str = schema.DATASET_SHOTS) -> str:
     """
     if column in DERIVED_DEFINITIONS:
         return DERIVED_DEFINITIONS[column]
-    info = lookup(column, dataset)
-    return info.definition if info else ""
+
+    # Column names do not collide between the two files apart from the shared
+    # identifiers, so a miss in one is worth trying in the other rather than
+    # leaving a header with no tooltip.
+    for source in (dataset, schema.DATASET_PICKS, schema.DATASET_SHOTS):
+        info = lookup(column, source)
+        if info is not None and info.definition:
+            return info.definition
+    return ""
 
 
 def unit(column: str, dataset: str = schema.DATASET_SHOTS) -> str:

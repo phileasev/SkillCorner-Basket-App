@@ -67,6 +67,17 @@ def add_percentiles(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFra
     return out
 
 
+def percentile_series(frame: pd.DataFrame, column: str, eligible: pd.Series) -> pd.Series:
+    """Percentiles for one column, measured among one pool.
+
+    Used where each metric has its own pool rather than one shared eligibility —
+    a radar spoke gated on guarded shots must not be scaled by players who hardly
+    take any.
+    """
+    pool = eligible.reindex(frame.index).fillna(False)
+    return frame.loc[pool, column].rank(pct=True, na_option="keep").reindex(frame.index)
+
+
 def two_tier_sort(frame: pd.DataFrame, metric: str, ascending: bool = False) -> pd.DataFrame:
     """Sort eligible players first, then ineligible ones, each group sorted alike.
 

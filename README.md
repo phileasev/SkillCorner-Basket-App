@@ -1,10 +1,18 @@
-# ACB Offense Explorer
+# Triple Threat
 
 A local Streamlit app for exploring player-level offensive tracking data from the
 **2024-2025 Liga ACB** season, built for a basketball analyst or scout.
 
-The first view, **Shot Quality Board**, answers one scouting question from three
-angles: *how hard are this player's shots, and does he make them?*
+The name is the three ways this data shows a player threatening a defence:
+shooting it, attacking off a screen, and creating for somebody else.
+
+Two boards so far, built on the same machinery:
+
+* **Shot Quality Board** — *how hard are this player's shots, and does he make them?*
+* **Pick & Roll Board** — *does a screen create an advantage for him, and what does
+  he do with it?*
+* **Shortlist** — stack the bars a player has to clear, then open anyone on the
+  list and read his whole offensive profile without leaving the page.
 
 ---
 
@@ -32,15 +40,89 @@ One page, one player pool, one filter row, three lenses:
 
 | Lens | The question | Plotted against | Minimum applies to |
 |---|---|---|---|
-| **Where he shoots** | Which shots does he take? | Average distance vs points per shot | `attempts` |
-| **How guarded he is** | Does he score with a defender on him? | Share of shots guarded vs efficiency on them | `contested_attempts` |
-| **How it was created** | Does he make his own shot? | Share off the dribble vs efficiency on them | `od_attempts` |
+| **Shot distance** | Which shots does he take? | Average distance vs points per shot | `attempts` |
+| **Shot contestation** | Does he score with a defender on him? | Share of shots guarded vs efficiency on them | `contested_attempts` |
+| **Shot creation** | Does he make his own shot? | Share off the dribble vs efficiency on them | `od_attempts` |
 
 Selecting a player keeps him selected across all three, and across every filter
 change, so the lenses are angles on one profile rather than three separate
 reports. If a filter leaves him out of view his card is replaced by a line saying
 so, and he comes back as soon as the filters let him through; unloading him is a
 button on the card.
+
+### Pick & Roll Board
+
+One lens per role, because they are two populations rather than one: of 292
+players, only **four** record fifty picks both as ball handler and as screener.
+
+| Lens | Coverages it faces | Plotted against | Minimum applies to |
+|---|---|---|---|
+| **Ball handler** | Over, Under, Switch, Blitz, Ice | Picks he finishes himself vs points generated | `handler_total_picks`, then `handler_picks_vs_<coverage>` |
+| **Screener** | Show, Soft/drop, Switch, Blitz, Ice | Shots from three out of the screen vs points generated | `screener_total_picks`, then `screener_picks_vs_<coverage>` |
+
+**Points per pick counts the points a teammate scored off the player's pass, not
+just his own basket.** It measures the offence generated per screen, which is the
+right question for a ball handler and the wrong one for a pure shooting
+comparison — `points_per_shot` from the shooting file is not its equivalent and
+the two are never put side by side.
+
+Three columns carry most of the value:
+
+* `handler_success_rate` — the share of screens the tracking judges to have created
+  an advantage, **regardless of whether the shot went in**. It separates execution
+  from shot-making, which a box score cannot.
+* `handler_pass_to_screener_pct` — does he actually play with his roll man, or does
+  he use the screen to hunt a kick-out?
+* `screener_assist_rate` — passing out of the short roll. A big man skill that is
+  hard to quantify anywhere else, and this file gives it directly.
+
+The coverage views make the threshold rule visible: the same 220-player population
+yields 97 eligible players against Over, 54 against Under, and **5 against Blitz**
+— the coverage is simply rare in the ACB, and the board says so on screen rather
+than hiding the split.
+
+### Shortlist
+
+A criterion is **two conditions, never one**. "Shoots 40% from three" is worthless
+without "on enough threes to mean it", so every bar carries the count its metric
+rests on, taken from the same threshold the boards already use for it. Raising the
+bar from *40% on any number of guarded threes* to *40% on 40 of them* is what
+separates a shortlist from a list of small samples.
+
+Every metric the boards display is filterable, because the options are read from
+the same catalogue rather than listed a second time — each named by its lens, its
+split and its column, since a label like "Finishes himself" exists once per
+defensive coverage and would otherwise name six different numbers.
+
+The table carries **every metric the app knows**; the criteria decide which open on
+screen, and the table's own column menu brings back any of the others. Seven counts carry a
+minimum in a collapsed panel — the ones the boards themselves gate on, minus the
+coverage splits, which belong on the criterion that uses them. Below the minimum
+the value is left blank rather than printed: the player stays on the list, only
+the figure his sample cannot support disappears. Every other count keeps the floor
+its own board already applies.
+
+**A bar can be set as a value or as a place in the league**, and the line under it
+always states both: *39.5% — 80th percentile, keeping the top 20% of the 125
+players with enough events*. Percentages are typed as percentages, and the box
+opens on the median of the pool rather than at zero. The percentile is measured on
+the pool the criterion itself filters on, so raising the events required moves it.
+
+Opening a player shows, in place:
+
+* a **radar of percentiles**, spokes named after the metrics themselves so nothing
+  has to be translated, each measured among the players who clear that spoke's own
+  minimum. **Both pick-and-roll roles are on it**: a player with 59 picks as ball
+  handler and 55 as screener does a bit of each, and picking a side for him would
+  hide half of what he is — an axis built on guarded shots is not scaled by players who
+  barely take any. A spoke he cannot clear is left empty rather than drawn at zero,
+  which would read as a weakness he has not shown. The last spokes follow his main
+  role he barely plays simply leaves a gap, which is itself the reading;
+* a **shot chart** on the NBA zone convention, the only one that separates a corner
+  three from one above the break. Those columns ship attempts and makes but **no
+  percentage**, so the accuracy is computed and left missing where nothing was
+  attempted;
+* his **shot menu** and **where his screens are set**, side by side.
 
 ---
 
@@ -175,11 +257,11 @@ half court. Read as feet, 22.11 converts to **6.74 m — the FIBA three-point li
 the centimetre**, and 3.78 becomes a 1.15 m layup. The app converts before display
 and leaves the raw column untouched; a test guards the conversion.
 
-**Blitz and Ice coverages are unusable in this release.** Across all 292 players the
-highest count is 5 picks against a blitz and 7 against an ice (medians of 0). No
-player reaches 25 of either. Whatever the cause — genuinely rare in the ACB, or
-under-labelled by the tracking — no efficiency against those coverages can be
-computed, and none is offered. This affects the pick-and-roll views, not this board.
+**Blitz and Ice are rare coverages in the ACB.** Across all 292 players the highest
+count is 5 picks against a blitz and 7 against an ice, with medians of 0 — Spanish
+defences simply play them very little. They are shown like every other coverage:
+the minimum does the filtering, and the view says plainly that the coverage is
+rare rather than hiding it.
 
 **There is no position column,** and no minutes column either. Nothing can be
 normalised per 36 minutes; everything is per shot, per pick or per game. Note also

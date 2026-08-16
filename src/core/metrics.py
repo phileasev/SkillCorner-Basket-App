@@ -90,6 +90,34 @@ class View:
 
 
 @dataclass(frozen=True)
+class Segment:
+    """One slice of a player's profile: a share, or a value with its own count."""
+
+    label: str
+    value: str
+    count: str
+    min_count: int = 0
+
+
+@dataclass(frozen=True)
+class Profile:
+    """The two figures every player card carries, whatever the page.
+
+    `breakdown` is a share of the player's own events, so it needs no minimum and
+    holds for everyone. `comparison` is a value per slice, gated slice by slice on
+    its own count and read against the league median.
+    """
+
+    breakdown_title: str
+    breakdown_caption: str
+    breakdown: tuple[Segment, ...]
+    comparison_title: str
+    comparison_caption: str
+    comparison: tuple[Segment, ...]
+    comparison_fmt: str = PCT1
+
+
+@dataclass(frozen=True)
 class Lens:
     """A group of views answering the same question from one angle."""
 
@@ -97,6 +125,11 @@ class Lens:
     label: str
     caption: str
     views: tuple[View, ...] = field(default_factory=tuple)
+    profile: Profile | None = None
+    #: Which of the two files the lens reads. Decides what a page loads.
+    dataset: str = schema.DATASET_SHOTS
+    #: What the views inside this lens are, in the reader's words.
+    view_label: str = "View"
 
 
 #: Every displayed rate, mapped to the count it is computed from. The minimum a
@@ -119,6 +152,57 @@ DENOMINATORS: dict[str, str] = {
     schema.CONTESTED_THREE_RATE: schema.THREE_ATTEMPTS,
     schema.ASSISTED_SHARE: schema.MADES,
     schema.MIDRANGE_RATE: schema.ATTEMPTS,
+    schema.THREE_PA_RATE: schema.ATTEMPTS,
+    schema.FOULED_RATE: schema.ATTEMPTS,
     **{zone.made_pct: zone.attempts for zone in schema.SHOT_ZONES},
     **{zone.attempt_rate: schema.ATTEMPTS for zone in schema.SHOT_ZONES},
 }
+
+
+def _pick_denominators() -> dict[str, str]:
+    """Every pick rate mapped to the picks it was computed from.
+
+    Generated rather than typed: the picks file repeats the same metric stems for
+    each role, each coverage and each spot on the floor, so the regularity does
+    the work and only the stems have to be listed.
+    """
+    stems = (
+        "ppp",
+        "score_rate",
+        "turnover_rate",
+        "success_rate",
+        "shot_taken_pct",
+        "assist_rate",
+        "assist_opportunity_rate",
+        "pass_to_screener_pct",
+        "shot_rate_2pt",
+        "shot_rate_3pt",
+        "foul_pct",
+        "points_per_shot_in_pick",
+    )
+    roles = (
+        (schema.ROLE_HANDLER_PREFIX, schema.HANDLER_COVERAGES),
+        (schema.ROLE_SCREENER_PREFIX, schema.SCREENER_COVERAGES),
+    )
+
+    mapping: dict[str, str] = {}
+    for role, coverages in roles:
+        overall = schema.total_picks(role)
+        for stem in stems:
+            mapping[schema.pick_column(role, stem)] = overall
+            for coverage in coverages:
+                mapping[schema.pick_column(role, stem, coverage=coverage.suffix)] = (
+                    schema.picks_vs(role, coverage.suffix)
+                )
+            for spot in schema.COURT_SPOTS:
+                mapping[schema.pick_column(role, stem, spot=spot.suffix)] = (
+                    schema.picks_at(role, spot.suffix)
+                )
+        # A share of his picks is measured against all of them, wherever it is set.
+        for spot in schema.COURT_SPOTS:
+            mapping[schema.pick_column(role, "pick_rate", spot=spot.suffix)] = overall
+
+    return mapping
+
+
+DENOMINATORS.update(_pick_denominators())

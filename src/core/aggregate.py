@@ -42,6 +42,7 @@ def derive_shot_features(frame: pd.DataFrame) -> pd.DataFrame:
     )
     out[schema.ASSISTED_SHARE] = safe_ratio(out[schema.ASSISTED_SHOTS], out[schema.MADES])
     out[schema.SHOT_DISTANCE_METRES] = out[schema.AVG_SHOT_DISTANCE] * schema.FEET_TO_METRES
+    out[schema.FOULED_RATE] = safe_ratio(out[schema.FOULED_FGA], out[schema.ATTEMPTS])
 
     # The file splits the mid-range in two; a scout reads it as one area. Summing
     # the two zones is the same figure as 100% minus the rim and the three-point
@@ -59,12 +60,39 @@ def derive_shot_features(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def derive_pick_features(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add the derived pick columns the views need.
+
+    The file already carries almost everything as a rate. The one thing it does
+    not is how often a role's picks end without a shot and without a pass, which
+    is what separates a handler who resolves the action from one who kills it.
+
+    Args:
+        frame: the raw pick-and-roll frame.
+
+    Returns:
+        A new frame; the input is left untouched.
+    """
+    out = frame.copy()
+
+    for role in (schema.ROLE_HANDLER_PREFIX, schema.ROLE_SCREENER_PREFIX):
+        picks = out[schema.total_picks(role)]
+        out[schema.pick_column(role, "picks_per_game")] = safe_ratio(
+            picks, out[schema.GAMES_PLAYED]
+        )
+
+    return out
+
+
+def segment_medians(frame: pd.DataFrame, segments: tuple) -> dict[str, float | None]:
+    """Median value per profile segment, keyed by the segment's value column."""
+    return {segment.value: league_median(frame, segment.value) for segment in segments}
+
+
 def league_median(frame: pd.DataFrame, column: str) -> float | None:
     """Median of a column over the frame, or None when nothing is measurable."""
     values = frame[column].dropna()
     return float(values.median()) if len(values) else None
 
 
-def zone_medians(frame: pd.DataFrame) -> dict[str, float | None]:
-    """Median accuracy per shot zone, keyed by the zone's percentage column."""
-    return {zone.made_pct: league_median(frame, zone.made_pct) for zone in schema.SHOT_ZONES}
+

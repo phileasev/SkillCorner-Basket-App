@@ -9,8 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from src.core import metrics
-from src.core.metrics import View
+from src.core.metrics import Segment, View
 from src.core.ranking import ELIGIBLE
 from src.data import schema
 from src.ui import format as fmt
@@ -150,13 +149,13 @@ def scatter(frame: pd.DataFrame, view: View, selected: str | None) -> go.Figure:
     return figure
 
 
-def shot_menu(row: pd.Series) -> go.Figure:
-    """Horizontal breakdown of where one player's attempts come from."""
+def breakdown_bar(row: pd.Series, segments: tuple[Segment, ...]) -> go.Figure:
+    """One player's events split across the segments of his profile, as a full bar."""
     palette = theme.palette()
     figure = go.Figure()
 
-    for zone, colour in zip(schema.SHOT_ZONES, palette.zones):
-        share = row.get(zone.attempt_rate)
+    for segment, colour in zip(segments, palette.zones):
+        share = row.get(segment.value)
         if pd.isna(share) or share <= 0:
             continue
         figure.add_bar(
@@ -164,7 +163,7 @@ def shot_menu(row: pd.Series) -> go.Figure:
             y=["menu"],
             orientation="h",
             marker={"color": colour, "line": {"width": 2, "color": palette.surface}},
-            name=zone.label,
+            name=segment.label,
             hoverinfo="skip",
         )
 
@@ -174,25 +173,39 @@ def shot_menu(row: pd.Series) -> go.Figure:
     return figure
 
 
-def zone_accuracy(row: pd.Series, medians: dict[str, float | None]) -> go.Figure:
-    """One player's accuracy per zone, against the league median for each zone."""
+def comparison_bars(
+    row: pd.Series,
+    segments: tuple[Segment, ...],
+    medians: dict[str, float | None],
+    value_fmt: str,
+    ceiling: float,
+) -> go.Figure:
+    """One player's value per segment, against the league median for each.
+
+    Args:
+        row: the player.
+        segments: what to break the figure into.
+        medians: league median per segment value column.
+        value_fmt: how to print each value.
+        ceiling: the top of the scale every bar is read against.
+    """
     palette = theme.palette()
     figure = go.Figure()
 
     labels, values, colours, texts = [], [], [], []
-    for zone in schema.SHOT_ZONES:
-        attempts = row.get(zone.attempts)
-        enough = pd.notna(attempts) and attempts >= schema.ZONE_MIN_ATTEMPTS
-        accuracy = row.get(zone.made_pct)
-        labels.append(zone.label)
-        values.append(0.0 if not enough or pd.isna(accuracy) else float(accuracy))
+    for segment in segments:
+        events = row.get(segment.count)
+        enough = pd.notna(events) and events >= segment.min_count
+        value = row.get(segment.value)
+        labels.append(segment.label)
+        values.append(0.0 if not enough or pd.isna(value) else float(value))
         colours.append(palette.accent if enough else palette.muted)
-        texts.append(fmt.value(metrics.PCT1, accuracy) if enough else fmt.BLANK)
+        texts.append(fmt.value(value_fmt, value) if enough else fmt.BLANK)
 
     # A full-width track behind every bar, so each one is read against the same
     # 100% frame instead of against whichever zone happens to be the longest.
     figure.add_bar(
-        x=[1.0] * len(labels),
+        x=[ceiling] * len(labels),
         y=labels,
         orientation="h",
         marker={"color": palette.track, "line": {"width": 1, "color": palette.rule}},
@@ -214,12 +227,12 @@ def zone_accuracy(row: pd.Series, medians: dict[str, float | None]) -> go.Figure
     # the 100% frame.
     for index, text in enumerate(texts):
         figure.add_annotation(
-            x=1.0, y=index, xanchor="right", xshift=-6, showarrow=False, text=text,
+            x=ceiling, y=index, xanchor="right", xshift=-6, showarrow=False, text=text,
             font={"color": palette.ink_soft, "size": 11},
         )
 
-    for index, zone in enumerate(schema.SHOT_ZONES):
-        median = medians.get(zone.made_pct)
+    for index, segment in enumerate(segments):
+        median = medians.get(segment.value)
         if median is not None:
             figure.add_shape(
                 type="line",
@@ -228,7 +241,7 @@ def zone_accuracy(row: pd.Series, medians: dict[str, float | None]) -> go.Figure
             )
 
     figure.update_layout(**_base_layout(palette, 190), barmode="overlay")
-    figure.update_xaxes(visible=False, range=[0, 1.0], fixedrange=True)
+    figure.update_xaxes(visible=False, range=[0, ceiling], fixedrange=True)
     figure.update_yaxes(
         autorange="reversed",
         showgrid=False,

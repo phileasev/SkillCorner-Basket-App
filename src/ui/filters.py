@@ -96,7 +96,7 @@ def minimum_expander(frame: pd.DataFrame, view: View) -> tuple[int, bool]:
     return int(minimum), bool(show_ineligible)
 
 
-def value_mode() -> bool:
+def value_mode(scope: object) -> bool:
     """Whether the table shows standings rather than raw numbers.
 
     Both readings order the players identically — a percentile is the raw value
@@ -108,16 +108,20 @@ def value_mode() -> bool:
         ["Values", "Percentiles"],
         default="Values",
         label_visibility="collapsed",
-        key="value_mode",
+        key=f"value_mode_{getattr(scope, 'key', 'shortlist')}",
     )
     return chosen == "Percentiles"
 
 
-def lens_picker() -> catalogue.Lens:
-    """Render the lens selector and return the chosen lens."""
-    labels = {lens.label: lens for lens in catalogue.LENSES}
+def lens_picker(lenses: tuple[catalogue.Lens, ...]) -> catalogue.Lens:
+    """Render the lens selector for one page and return the chosen lens."""
+    labels = {lens.label: lens for lens in lenses}
     chosen = st.segmented_control(
-        "Lens", list(labels), default=list(labels)[0], label_visibility="collapsed"
+        "Lens",
+        list(labels),
+        default=list(labels)[0],
+        label_visibility="collapsed",
+        key=f"lens_{lenses[0].key}",
     )
     return labels.get(chosen or list(labels)[0])
 
@@ -128,7 +132,7 @@ def view_picker(lens: catalogue.Lens) -> View:
         return lens.views[0]
     labels = {view.label: view for view in lens.views}
     chosen = st.segmented_control(
-        "Shot type",
+        lens.view_label,
         list(labels),
         default=list(labels)[0],
         label_visibility="collapsed",

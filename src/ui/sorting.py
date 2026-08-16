@@ -113,13 +113,6 @@ def label_of(column: str | None, targets: dict[str, str]) -> str | None:
     return next((label for label, key in targets.items() if key == column), None)
 
 
-def reverse(view: View) -> None:
-    """Flip the current ordering, adopting the default column if none was picked."""
-    column, ascending = order_by(view)
-    st.session_state[_column_store(view)] = column
-    st.session_state[_ascending_store(view)] = not ascending
-
-
 def caption(view: View, targets: dict[str, str]) -> str:
     """One line telling the reader how the table is ordered and how to change it."""
     column, ascending = chosen(view)
