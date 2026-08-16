@@ -1,0 +1,19 @@
+# The primary colour drives Streamlit's own accents — selection, sliders, focus
+# rings. Setting it to the charts' accent blue keeps a selected row and a selected
+# dot looking like the same act, instead of red in one place and blue in the other.
+#
+# It is declared per variant on purpose. A bare `[theme]` block with no `base`
+# pins the app to the light theme and takes the reader's dark mode away; the
+# `[theme.light]` / `[theme.dark]` sections set the accent in each without
+# choosing one for him.
+[theme.light]
+primaryColor = "#2a78d6"
+
+[theme.dark]
+primaryColor = "#3987e5"
+
+[client]
+# "viewer", not "minimal": minimal hides the whole options menu, and Streamlit's
+# own light/dark switch lives in it. "viewer" keeps that switch and drops only the
+# developer entries (rerun, clear cache, deploy).
+toolbarMode = "viewer"
