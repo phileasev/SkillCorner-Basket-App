@@ -8,6 +8,10 @@ coverages — the two roles do not face the same ones.
 ⚠️ `{role}_ppp` counts the points a teammate scored off the player's pass as well
 as his own. It measures the offence generated per screen, not his shooting. The
 scorer-only figure is `{role}_points_per_shot_in_pick`.
+
+A `Column` names nothing: its header is the display name `metric_glossary.csv`
+gives that column, which already carries the role and the coverage — `Ball
+Handler - Points Per Pick (vs Over)`. Only the sentences are written here.
 """
 
 from __future__ import annotations
@@ -15,10 +19,12 @@ from __future__ import annotations
 from src.core.metrics import (
     DEC2,
     INT,
+    MINIMUM_STEP,
     PCT0,
     PCT1,
     Axis,
     Column,
+    Facet,
     Lens,
     Profile,
     Segment,
@@ -27,12 +33,94 @@ from src.core.metrics import (
 )
 from src.data import schema
 
-#: Picks a coverage needs before its efficiency is worth printing. Blitz and Ice
-#: are rare in the ACB, so their default sits where a handful of players clear it
-#: rather than at a level that would empty the board.
-COMMON_MINIMUM: int = 25
-RARE_MINIMUM: int = 3
-OVERALL_MINIMUM: int = 50
+#: Where each role's overall board opens. The two are not the same number because
+#: the two roles are not the same job: a screener is asked to set screens all game
+#: and a ball handler runs the ones a team calls for him, so the volumes are not
+#: comparable and one bar for both would judge them on the same scale. At these,
+#: 141 handlers and 150 screeners are measured — a rotation's worth of each. Both
+#: sit on a slider notch (`metrics.MINIMUM_STEP`), so either can be returned to.
+HANDLER_MINIMUM: int = 10
+SCREENER_MINIMUM: int = 20
+
+#: What share of the league's screens each coverage and each spot accounts for,
+#: measured on the two files. The same numbers serve both roles, and rightly so: a
+#: screen played as a switch is one event on the floor, counted once from each end.
+#: A test recomputes them from the CSVs, so they cannot quietly go stale.
+LEAGUE_SHARE: dict[str, float] = {
+    "over": 0.667,
+    "switch": 0.164,
+    "under": 0.159,
+    "show": 0.451,
+    "soft": 0.371,
+    "ice": 0.006,
+    "blitz": 0.003,
+    "middle": 0.627,
+    "wing": 0.235,
+    "stepUp": 0.138,
+}
+
+
+def split_minimum(role_bar: int, split: str) -> int:
+    """The bar for one coverage or one spot: the role's bar, cut to that split's share.
+
+    A flat 25 picks per coverage was the same bar asked five times over, and it
+    asked far more of a split than the board asks of the whole: a handler is
+    measured from ten screens, yet needed twenty-five of them played one way. Only
+    97 of the 213 players in scope had a figure against the over, 54 against the
+    under, and **nobody at all** against the blitz or the ice — which reads as
+    missing data rather than as a defence Spain barely plays.
+
+    A split is therefore asked for the same slice of a season as the whole: the
+    role's bar times how often the league plays it. Rounded **down** to a notch the
+    slider can actually reach, never below one — a bar the reader cannot return to
+    is a bar he loses the first time he moves the control, and a points-per-pick on
+    zero picks is not a number. The counts sit beside every figure, so what a thin
+    split looks like stays visible rather than being decided for him.
+    """
+    wanted = role_bar * LEAGUE_SHARE.get(split, 1.0)
+    notches = [notch for notch in range(MINIMUM_STEP, role_bar + 1, MINIMUM_STEP)
+               if notch <= wanted]
+    return max(notches) if notches else 1
+
+
+#: On the card's coverage figure, a pick is shown as soon as it happened. A bar
+#: needs one pick behind it — zero picks would print a points-per-pick of nothing —
+#: and no more: the count sits beside every slice, so the reader judges the sample
+#: himself instead of being shown a blank.
+COVERAGE_MINIMUM: int = 1
+
+
+def role_minimum(role: str) -> int:
+    """The overall bar for a role."""
+    return HANDLER_MINIMUM if role == schema.ROLE_HANDLER_PREFIX else SCREENER_MINIMUM
+
+def _coverage_facet(role: str) -> Facet:
+    """What the defence throws at him, and what he does with each of it.
+
+    Two questions a scout asks together and this data answers separately: what he
+    sees most, and what he punishes. The board can already be walked coverage by
+    coverage, but that is six clicks to compare six numbers — here they sit on one
+    figure, and the volume bar beside it says which of them he is actually asked.
+
+    Nothing here is withheld for being thin. This is a card, not a ranking: nobody
+    is placed against anybody, the picks behind each slice are printed next to it,
+    and a coverage a player saw four times is a fact about him worth seeing.
+    """
+    coverages = schema.coverages_for(role)
+    return Facet(
+        title="What the defence does about it",
+        caption="Share of his picks, by how the defence played the screen",
+        breakdown=tuple(
+            Segment(coverage.label, schema.coverage_share(role, coverage.suffix),
+                    schema.picks_vs(role, coverage.suffix))
+            for coverage in coverages
+        ),
+        comparison=tuple(
+            Segment(coverage.label, schema.pick_column(role, "ppp", coverage=coverage.suffix),
+                    schema.picks_vs(role, coverage.suffix), COVERAGE_MINIMUM)
+            for coverage in coverages
+        ),
+    )
 
 
 def _profile(role: str) -> Profile:
@@ -49,16 +137,19 @@ def _profile(role: str) -> Profile:
         comparison_caption="Bars run to 1.5 points; the line marks the league median for that spot",
         comparison=tuple(
             Segment(spot.label, schema.pick_column(role, "ppp", spot=spot.suffix),
-                    schema.picks_at(role, spot.suffix), COMMON_MINIMUM)
+                    schema.picks_at(role, spot.suffix),
+                    split_minimum(role_minimum(role), spot.suffix))
             for spot in schema.COURT_SPOTS
         ),
         comparison_fmt=DEC2,
+        on_court=True,
+        coverage=_coverage_facet(role),
     )
 
 
 def _overall(role: str, key: str, label: str, title: str, description: str,
              quadrants: tuple[str, str], x: Axis, summary: str,
-             extra: tuple[Column, ...], tiles: tuple[str, ...]) -> View:
+             extra: tuple[Column, ...], tiles: tuple[str, ...], minimum: int) -> View:
     """The view of a role across every pick he was involved in."""
     picks = schema.total_picks(role)
     return View(
@@ -68,15 +159,14 @@ def _overall(role: str, key: str, label: str, title: str, description: str,
         description=description,
         x=x,
         y=Axis(schema.pick_column(role, "ppp"), "Points generated per pick", DEC2),
-        threshold=Threshold(picks, "Picks", OVERALL_MINIMUM),
+        threshold=Threshold(picks, "picks", minimum),
         columns=(
-            Column(picks, "Picks", INT),
-            Column(schema.pick_column(role, "ppp"), "Points per pick", DEC2,
-                   sample=picks, is_rank_basis=True),
-            Column(schema.pick_column(role, "success_rate"), "Advantage created", PCT1,
+            Column(picks, INT),
+            Column(schema.pick_column(role, "ppp"), DEC2, sample=picks, is_rank_basis=True),
+            Column(schema.pick_column(role, "success_rate"), PCT1,
                    sample=picks, is_context=True),
             *extra,
-            Column(schema.pick_column(role, "turnover_rate"), "Turnover rate", PCT1, sample=picks),
+            Column(schema.pick_column(role, "turnover_rate"), PCT1, sample=picks),
         ),
         tiles=tiles,
         quadrants=quadrants,
@@ -112,16 +202,16 @@ def _coverage_view(role: str, coverage: schema.Coverage) -> View:
         y=Axis(ppp, "Points generated per pick", DEC2),
         threshold=Threshold(
             picks,
-            f"Picks {coverage.label.lower()}",
-            RARE_MINIMUM if coverage.rare else COMMON_MINIMUM,
+            f"picks against {coverage.label.lower()}",
+            split_minimum(role_minimum(role), coverage.suffix),
         ),
         columns=(
-            Column(picks, "Picks", INT),
-            Column(ppp, "Points per pick", DEC2, sample=picks, is_rank_basis=True),
-            Column(score, "Scoring rate", PCT1, sample=picks, is_context=True),
-            Column(shot_rate, "Finishes himself", PCT0, sample=picks),
-            Column(three_rate, "Shoots a three", PCT0, sample=picks),
-            Column(turnover, "Turnover rate", PCT1, sample=picks),
+            Column(picks, INT),
+            Column(ppp, DEC2, sample=picks, is_rank_basis=True),
+            Column(score, PCT1, sample=picks, is_context=True),
+            Column(shot_rate, PCT0, sample=picks),
+            Column(three_rate, PCT0, sample=picks),
+            Column(turnover, PCT1, sample=picks),
         ),
         tiles=(ppp, score, three_rate),
         quadrants=("Scores it himself", "Plays it out of the screen"),
@@ -136,6 +226,7 @@ HANDLER = Lens(
     key="handler",
     label="Ball handler",
     dataset=schema.DATASET_PICKS,
+    prefix_from=schema.total_picks(schema.ROLE_HANDLER_PREFIX),
     view_label="Coverage",
     caption="The player using the screen",
     profile=_profile(schema.ROLE_HANDLER_PREFIX),
@@ -143,6 +234,7 @@ HANDLER = Lens(
         _overall(
             schema.ROLE_HANDLER_PREFIX,
             key="handler_overall",
+            minimum=HANDLER_MINIMUM,
             label="Every pick",
             title="Scoring it, or playing out of it",
             description=(
@@ -153,15 +245,12 @@ HANDLER = Lens(
                    "Picks he finishes himself", PCT0),
             quadrants=("Scores it himself", "Plays it out of the screen"),
             extra=(
-                Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "shot_taken_pct"),
-                       "Finishes himself", PCT0,
+                Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "shot_taken_pct"), PCT0,
                        sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
                 Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "assist_opportunity_rate"),
-                       "Creates a shot", PCT1,
-                       sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
+                       PCT1, sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
                 Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "pass_to_screener_pct"),
-                       "Passes to the screener", PCT0,
-                       sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
+                       PCT0, sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
             ),
             tiles=(
                 schema.pick_column(schema.ROLE_HANDLER_PREFIX, "ppp"),
@@ -184,6 +273,7 @@ SCREENER = Lens(
     key="screener",
     label="Screener",
     dataset=schema.DATASET_PICKS,
+    prefix_from=schema.total_picks(schema.ROLE_SCREENER_PREFIX),
     view_label="Coverage",
     caption="The player setting the screen",
     profile=_profile(schema.ROLE_SCREENER_PREFIX),
@@ -191,6 +281,7 @@ SCREENER = Lens(
         _overall(
             schema.ROLE_SCREENER_PREFIX,
             key="screener_overall",
+            minimum=SCREENER_MINIMUM,
             label="Every pick",
             title="Rolling, popping, or passing out of the short roll",
             description=(
@@ -201,14 +292,11 @@ SCREENER = Lens(
                    "Shots out of the screen taken from three", PCT0),
             quadrants=("Pops and scores", "Rolls and finishes"),
             extra=(
-                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "shot_rate_3pt"),
-                       "Pops for three", PCT0,
+                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "shot_rate_3pt"), PCT0,
                        sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
-                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "assist_rate"),
-                       "Assists out of the roll", PCT1,
+                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "assist_rate"), PCT1,
                        sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
-                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "foul_pct"),
-                       "Draws a foul", PCT1,
+                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "foul_pct"), PCT1,
                        sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
             ),
             tiles=(

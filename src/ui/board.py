@@ -46,19 +46,31 @@ def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: s
 
     source = frames[lens.dataset]
     with scope_slot:
-        scope = filters.scope_row(source)
+        scope = filters.scope_row(source, source)
         minimum, show_ineligible = filters.minimum_expander(source, view)
 
-    population = thresholds.apply_population(source, scope)
+    # The scope bar's league is the pool every standing on this page is read
+    # against — computed before the team and the name search narrow the view, so
+    # searching for one man does not rank him against himself. The counts are
+    # placed too, not only the rates: a season total is a fact, and where that fact
+    # sits in the league is another one.
+    pool_mask = thresholds.league_mask(source, scope)
+    placed = ranking.add_percentiles(
+        source,
+        (schema.GAMES_PLAYED, *(key for _, key in tables.layout(view))),
+        pool_mask,
+    )
+    pool = placed.loc[pool_mask]
+
+    population = thresholds.apply_population(placed, scope)
     if population.empty:
         with table_slot:
             st.info("No player matches these filters.")
         return
 
-    flagged = ranking.flag_eligible(
+    scored = ranking.flag_eligible(
         population, thresholds.eligibility_mask(population, view, minimum)
     )
-    scored = ranking.add_percentiles(flagged, tuple(column.key for column in view.columns))
     targets = tables.sort_targets(view)
 
     def table_key(sort_column: str, ascending: bool, generation: int, pinned: str | None) -> str:
@@ -141,12 +153,18 @@ def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: s
             as_percentiles=as_percentiles,
         )
 
+        if as_percentiles:
+            tables.percentile_key()
+
         note = f" · **{chosen}** is held on the first row while he is loaded." if chosen else ""
         st.caption(sorting.caption(view, targets) + note)
 
     with panel_slot:
         match = visible[visible[schema.PLAYER_NAME] == chosen] if chosen else visible.iloc[:0]
         if match.empty:
-            panel.empty_state(visible, view, out_of_scope=chosen)
+            panel.empty_state(visible, pool, view, out_of_scope=chosen)
         else:
-            panel.card(match.iloc[0], view, catalogue.lens_of(view), visible)
+            # The median lines come from the scope bar's league, like the
+            # percentiles: a reference line read off the handful of players a team
+            # filter leaves standing is not a league median.
+            panel.card(match.iloc[0], view, catalogue.lens_of(view), pool, minimum)

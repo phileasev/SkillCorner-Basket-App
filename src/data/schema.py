@@ -97,6 +97,13 @@ FOULED_RATE: str = DERIVED_PREFIX + "fouled_rate"
 #: is converted for display and the raw one is never overwritten.
 FEET_TO_METRES: float = 0.3048
 
+#: Rounds in the ACB regular season. This is the length of the season every club
+#: plays, **not** a maximum: `games_played` runs to 44 in these files because the
+#: play-offs are aggregated into the same row. Nothing compares a player's games
+#: against it — it exists so a minimum can be stated per official game rather than
+#: as a bare number nobody can place.
+REGULAR_SEASON_GAMES: int = 34
+
 ROLE_HANDLER: str = "ball handler"
 ROLE_SCREENER: str = "screener"
 
@@ -257,6 +264,22 @@ def picks_vs(role: str, coverage: str) -> str:
 def picks_at(role: str, spot: str) -> str:
     """The role's pick count at one spot on the floor."""
     return pick_column(role, "picks", spot=spot)
+
+
+def coverages_for(role: str) -> tuple[Coverage, ...]:
+    """The coverages one role actually faces. The two sets are not the same."""
+    return HANDLER_COVERAGES if role == ROLE_HANDLER_PREFIX else SCREENER_COVERAGES
+
+
+def coverage_share(role: str, coverage: str) -> str:
+    """Share of a role's picks played one way by the defence.
+
+    The file ships a share per spot on the floor (`pick_rate_at_…`) but none per
+    coverage, so it is derived. The five coverages do account for the whole of a
+    player's picks — the lowest total observed is 98% — which is what makes a
+    hundred-percent bar the right shape for them.
+    """
+    return DERIVED_PREFIX + pick_column(role, "pick_rate", coverage=coverage)
 
 
 #: Columns that are zero for every player in this release. Never displayed.

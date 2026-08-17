@@ -1,13 +1,15 @@
-"""Eligibility, percentiles and ordering, all computed on the eligible players only.
+"""Eligibility, percentiles and ordering.
 
-Placing a player against a pool that includes small-sample noise would distort the
-scale for everybody, so players below the minimum are excluded from the
-computation and carry no percentile at all.
+**Every percentile in the app is measured on one pool: the scope bar's league.**
+Games played and shots taken define who counts as a league player, and a standing
+means the same thing on every page and under every view because of it. A per-view
+pool was tried first and dropped: a percentile that moved whenever a slider moved
+was a number the reader could not carry from one screen to the next.
 
 Percentiles are computed on every run rather than read from a precomputed file.
-They have to be: the eligible pool is whatever the reader's filters and minimum
-leave standing, so a stored percentile would be stale the moment a slider moves.
-Ranking 300 rows costs microseconds.
+They have to be: the pool is whatever the scope bar leaves standing, so a stored
+percentile would be stale the moment the reader widens it. Ranking 300 rows costs
+microseconds.
 """
 
 from __future__ import annotations
@@ -41,22 +43,30 @@ def flag_eligible(frame: pd.DataFrame, eligible: pd.Series) -> pd.DataFrame:
     return out
 
 
-def add_percentiles(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
-    """Place every eligible player on a 0-1 scale, for each column given.
+def add_percentiles(
+    frame: pd.DataFrame, columns: tuple[str, ...], pool: pd.Series | None = None
+) -> pd.DataFrame:
+    """Place every player on a 0-1 scale, for each column given.
 
-    A percentile answers "how many players does he sit above", so it is only
-    meaningful inside the pool it was measured on. Players below the minimum get
-    no value rather than a misleading one.
+    A percentile answers "how many players does he sit above", so it only means
+    something inside the pool it was measured on — which is why the pool is the
+    scope bar's league everywhere, and not the players who happen to clear the
+    view's own bar. A man below that bar keeps his standing and his greyed row: the
+    grey says he is thin, the standing says where the number he does have sits.
 
     Args:
-        frame: a population already carrying the `eligible` column.
-        columns: the metrics to place players on.
+        frame: the players to place.
+        columns: the metrics to place them on.
+        pool: boolean mask of the players the scale is built from. Defaults to
+            everybody in the frame.
 
     Returns:
         A new frame with one `percentile_<column>` per metric.
     """
     out = frame.copy()
-    measured = out[ELIGIBLE]
+    measured = (
+        pd.Series(True, index=out.index) if pool is None else pool.reindex(out.index).fillna(False)
+    )
 
     for column in columns:
         if column not in out.columns:
@@ -70,9 +80,9 @@ def add_percentiles(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFra
 def percentile_series(frame: pd.DataFrame, column: str, eligible: pd.Series) -> pd.Series:
     """Percentiles for one column, measured among one pool.
 
-    Used where each metric has its own pool rather than one shared eligibility —
-    a radar spoke gated on guarded shots must not be scaled by players who hardly
-    take any.
+    The pool handed in is the scope bar's league wherever this is called. It stays
+    a parameter rather than being assumed, so the one place that decides what the
+    league is stays the one place that says so.
     """
     pool = eligible.reindex(frame.index).fillna(False)
     return frame.loc[pool, column].rank(pct=True, na_option="keep").reindex(frame.index)

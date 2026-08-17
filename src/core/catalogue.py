@@ -9,6 +9,7 @@ from __future__ import annotations
 from src.core.metrics import DEC1, Lens, View
 from src.core.pick_views import PICK_LENSES
 from src.core.shot_views import SHOT_LENSES
+from src.data import glossary
 
 LENSES: tuple[Lens, ...] = (*SHOT_LENSES, *PICK_LENSES)
 
@@ -46,3 +47,21 @@ def view_by_key(key: str) -> View:
 def lens_of(view: View) -> Lens:
     """The lens a view belongs to."""
     return next(lens for lens in LENSES if view in lens.views)
+
+
+def short(view: View, name: str) -> str:
+    """A glossary name with whatever the board already states taken out of it.
+
+    Two things get said twice on a pick-and-roll board. The lens selector names the
+    role, and the view selector names the coverage — so a column headed `Screener -
+    Points Per Pick (vs Soft (Drop))` spends twenty-eight of its thirty-two
+    characters repeating the two controls directly above it, seven times across,
+    and the reader ends up scrolling sideways to read his own board.
+
+    The coverage only comes off a view that is *about* one coverage, where every
+    column carries the same one. Elsewhere it is what tells two columns apart.
+    """
+    trimmed = name.removeprefix(lens_of(view).prefix)
+    if "_vs_" in view.threshold.key:
+        trimmed = glossary.without_split(trimmed)
+    return trimmed

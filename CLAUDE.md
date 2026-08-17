@@ -33,6 +33,12 @@ Contraintes de l'énoncé, non négociables :
 **Langue** : README, noms de variables, docstrings, commentaires, libellés d'interface → **anglais**.
 Ce `CLAUDE.md` → français.
 
+⚠️ **`README.fr.md` est la traduction française de `README.md`, mot pour mot.** Elle existe pour
+que l'utilisateur relise le livrable confortablement, pas pour dire autre chose. **Toute
+modification de l'un doit être répercutée sur l'autre dans la même session** — chiffres, tableaux,
+titres de section, ordre des paragraphes. Le fichier anglais reste le livrable noté ; le français
+n'est jamais la source. Chacun pointe vers l'autre dans son en-tête.
+
 ---
 
 ## 2. Stack et commandes
@@ -176,13 +182,21 @@ La régularité doit être exploitée par génération automatique, **mais ces c
 - Les taux de picks sont `_rate` / `_pct`, ceux de tir sont `_percentage`.
 - Toutes les valeurs `ratio 0-1` sont **sur une échelle 0-1, pas 0-100** — le formatage `%` est
   une responsabilité de `src/ui/format.py`, jamais une multiplication éparpillée dans le code.
-  `efg_percentage` monte au-dessus de 1 (max observé 1.5) : ne pas clipper à 1.
+  **L'eFG dépasse 1, mais pas sur la colonne qu'on croit** : `efg_percentage` plafonne à **1,00**
+  exactement (2 joueurs, sur 6 et 3 tirs). Ce sont les colonnes de split qui montent —
+  `cns_efg_percentage` **1,50**, `contested_efg_percentage` et `uncontested_efg_percentage`
+  **1,25**, toutes sur **2 tentatives**. L'eFG peut atteindre 1,5 par construction (tout rentré,
+  tout à 3 points) : **ne jamais clipper à 1**. Ces trois valeurs sont aussi la meilleure
+  illustration du seuil — les trois joueurs tombent sous la barre des 35 tirs.
 - **`avg_shot_distance` est en PIEDS, pas en mètres**, contrairement à ce qu'annonce le glossaire.
-  Preuve : max observé 22,11 → 6,74 m une fois converti, soit **exactement la ligne à 3 points FIBA**
-  (6,75 m) ; min 3,78 → 1,15 m, un lay-up. Lus en mètres, tous les shooteurs tireraient de
-  22 m. Conversion assurée par `schema.FEET_TO_METRES` vers la colonne dérivée
-  `derived_avg_shot_distance_metres` ; la colonne brute n'est jamais écrasée, et un test verrouille
-  la conversion.
+  Preuve la plus courte : la **médiane** de la ligue vaut **14,43**. Lue en mètres, le tir médian
+  d'ACB partirait de derrière le milieu de terrain (14 m sur 28). Lue en pieds tout se recale :
+  parmi les 234 joueurs à 35 tirs ou plus, le plus lointain tire à 22,20 ft = **6,77 m**, soit la
+  ligne à 3 points FIBA (6,75 m) au centimètre, et le plus proche du cercle à 3,27 ft = 1,00 m, un
+  lay-up. ⚠️ Sur le fichier entier le max monte à 23,91 (3 tirs, 100 % à trois points) : citer les
+  bornes **sur une population qui tient**, pas sur les 295 lignes brutes. Conversion assurée par
+  `schema.FEET_TO_METRES` vers la colonne dérivée `derived_avg_shot_distance_metres` ; la colonne
+  brute n'est jamais écrasée, et un test verrouille la conversion.
 - ~89 colonnes de `picks_offense` sur 599 sont vides à plus de 50 %.
 
 ### 4.6 Pièges de données à documenter dans le README
@@ -224,6 +238,43 @@ La régularité doit être exploitée par génération automatique, **mais ces c
 
    Conséquence directe : **un seuil unique pour toute l'app est faux**. Le seuil est propre à la
    métrique affichée, et son maximum de slider est propre à la colonne dénominateur.
+
+8. **⚠️ AUCUN split de tir ne totalise `attempts`.** Vérifié colonne par colonne : une partie des
+   tirs ne porte pas de classification. Part du total couverte, sur 42 340 tirs de ligue :
+
+   | Split | Couverture | Pire joueur |
+   |---|---|---|
+   | `contested_` + `uncontested_` | 97,5 % (1 059 tirs non classés) | 15 tirs |
+   | `cns_` + `od_` | 94,1 % (2 494 tirs) | 31 tirs |
+   | les 5 zones NBA | 96,8 % | 25 % de ses tirs |
+   | les 4 zones SkillCorner | 96,8 % | — |
+   | les 5 `cl_` (contest level) | 97,5 % | 15 tirs |
+   | les 14 `cst_` (shot type) | 97,5 % | 15 tirs |
+
+   Conséquences appliquées : **les parts se calculent contre le TOTAL** et tombent légitimement
+   sous 100 % — ne jamais renormaliser à 100 ; le mid-range reste une **somme de deux zones**,
+   jamais `100 − rim − 3pts` (déjà acté) ; le shot chart couvre « la plupart » des tirs, pas tous.
+   `zone_three_attempts` est **≤ `three_attempts`** pour 203 joueurs (jusqu'à 17 de moins), même
+   cause. **Deux splits partitionnent bien**, eux : `two_attempts + three_attempts == attempts`
+   exactement sur les 295 lignes, et les 5 couvertures couvrent 98 à 100 % des picks — c'est ce
+   qui justifie la barre 100 % du bloc couvertures.
+9. **Zéro et manquant sont correctement distingués à la source.** Une tranche jamais jouée porte
+   **NaN**, pas 0 : 72 joueurs sans pick handler, 243 sans pick vs blitz, 201 sans `cst_heave`.
+   L'app fait pareil (`aggregate.safe_ratio` → NaN, `fmt.BLANK` à l'affichage). Confondre les deux
+   transformerait « jamais tenté » en « tenté et raté » sur toutes les fiches.
+10. **Colonnes mortes, chiffres exacts** : **24** colonnes de picks à zéro partout (dont toute la
+    famille `no_outcome_pick` et `screener_ft_attempts_in_pick` — le PPS screener est donc FG-only,
+    alors que `handler_ft_attempts_in_pick` monte à 79) ; **1** colonne entièrement vide,
+    `handler_fg2_pct_vs_blitz` ; **89** colonnes de picks vides à plus de 50 % ; **4** colonnes de
+    tir à zéro partout (`cl_blocked_mades`, `_points`, `_fg_percentage`, `_points_per_shot`) — ce
+    qui est **logique et non un défaut** : un tir contré n'est jamais rentré ; **8** colonnes de tir
+    vides à plus de 50 % (pourcentages et PPS des types rares : heave, leaner, lob, postFadeaway).
+11. **Le glossaire couvre 100 % des deux fichiers, dans les deux sens** : 599 + 228 = 827, aucune
+    colonne non décrite, aucune ligne orpheline. C'est ce qui rend sûre la règle « le glossaire est
+    la seule autorité de nommage » (§7).
+12. **Rosters et clés** : 288 joueurs communs, 4 uniquement dans picks, 7 uniquement dans shots,
+    **299 au total**. 18 équipes dans les deux fichiers. Aucun `player_id` ni `player_name` en
+    double — mais la jointure reste sur l'**id** : l'unicité d'une saison n'est pas une garantie.
 
 ---
 
@@ -278,6 +329,34 @@ automatiquement. Chaque seuil dispose d'un **slider allant de 0 au maximum réel
 le CSV pour cette colonne dénominateur** (`int(df[denominator].max())`), jamais un maximum codé en
 dur. `scripts/profile_denominators.py` sert à alimenter ce choix.
 
+**Tous les seuils de tir valent une tentative par match officiel** — `metrics.SEASON_MINIMUM`
+= `SHOTS_PER_GAME (1) × schema.REGULAR_SEASON_GAMES (34)` **arrondi au cran supérieur du slider**
+(`MINIMUM_STEP = 5`) = **35**. Un défaut hors grille ne peut plus être retrouvé dès que le lecteur
+touche le curseur : tout défaut se pose sur un cran, et `MINIMUM_STEP` est la seule source du pas
+(`filters.minimum_expander`, `criteria._minimum_input`). Formulé par match, pas en nombre nu : 35
+ne se lit pas tout seul, « un tir par match » se discute. Volontairement bas — il sert à sortir un
+pourcentage sur cinq tirs d'un classement, pas à réduire le board aux gros volumes ; le lecteur
+monte le slider s'il veut resserrer. Le même chiffre porte des exigences très différentes selon le
+dénominateur (234 joueurs à 35 tirs, 135 à 35 trois points contestés), ce qui est exactement
+l'intérêt de gater chaque taux sur SON compteur.
+⚠️ `REGULAR_SEASON_GAMES = 34` est la **longueur de la saison régulière**, jamais un maximum :
+§4.6 point 5 tient toujours, `games_played` monte à 44 à cause des playoffs et rien ne compare un
+joueur à ce 34.
+
+**Les seuils picks sont propres au rôle** : `HANDLER_MINIMUM = 10`, `SCREENER_MINIMUM = 20`
+(couvertures : 25, ou 3 si rare). Un écran n'est pas un tir, et les deux rôles ne sont pas le même
+métier : un screener pose des écrans toute la partie, un handler joue ceux que l'équipe appelle
+pour lui — les volumes ne sont pas comparables et une barre unique classerait deux métiers sur une
+seule échelle. À 10 et 20 : 141 handlers et 150 screeners mesurés (contre 102 / 103 à l'ancien 50).
+
+**`MINIMUM_STEP = 5`, un seul pas pour toute l'app**, donc **tout défaut doit tomber sur un cran**.
+Un défaut de 8, atteignable ni depuis 5 ni depuis 10, est une barre que le lecteur perd au premier
+mouvement du curseur (essayé, puis ramené à 10 sur demande de l'utilisateur — ne pas réintroduire
+un pas variable pour rattraper un défaut mal choisi ; c'est le défaut qu'on arrondit). **Seule
+exception : un défaut inférieur au pas** — les 3 picks des couvertures rares s'ouvrent sous le
+premier arrêt du slider, et 0 (tout le monde, comptes affichés) est le retour. Test dédié, qui
+autorise explicitement ce cas et rien d'autre.
+
 ---
 
 ## 6. Comportement de l'interface — appliquer partout où un seuil s'applique
@@ -317,6 +396,26 @@ optionnelle « adjusted value », **à côté** de la valeur brute et **jamais �
 - **Constantes** : `src/data/schema.py` (colonnes, splits, préfixes) et `src/core/metrics.py`
   (catalogue de métriques, dénominateurs, défauts de seuils). **Aucune chaîne de nom de colonne en
   dur dans `pages/` ou dans `src/ui/`.**
+- **Aucun libellé de colonne écrit à la main.** Tout nom de colonne affiché vient de
+  `glossary.name(key)`, c'est-à-dire du `display_name` de `metric_glossary.csv`. `Column`,
+  `Threshold` et `profile.Axis` n'ont **pas** de champ `label` : c'est une propriété qui interroge
+  le glossaire. Les colonnes dérivées sont nommées dans `glossary.derived_names()`, dans le style
+  du glossaire (`Split - Métrique`, title case), à côté de leur définition. Seules les **phrases**
+  restent écrites à la main : libellés d'axes de nuage (`metrics.Axis.label`), quadrants,
+  descriptions de vues, et `Threshold.events` (« guarded shots », pour les phrases de la fiche).
+- **Un board ne répète pas dans ses en-têtes ce que ses propres sélecteurs disent**
+  (`catalogue.short(view, name)`, appliqué aux en-têtes de `tables.layout`, aux tuiles de la carte,
+  au slider de seuil et au hover du nuage) :
+  - le **rôle**, retiré via `Lens.prefix` — dérivé de `Lens.prefix_from` (une colonne de la
+    lentille) et **jamais tapé** : `glossary.name("handler_total_picks")` → `Ball Handler - ` ;
+  - la **couverture**, retirée via `glossary.without_split` **uniquement sur une vue de
+    couverture** (`"_vs_" in view.threshold.key`), où toutes les colonnes portent la même. Ailleurs
+    le split est ce qui distingue deux colonnes, on n'y touche pas.
+  `Screener - Points Per Pick (vs Soft (Drop))` = 32 caractères dont 28 répètent les deux
+  contrôles juste au-dessus, sept fois de suite : le lecteur devait faire défiler son propre
+  tableau vers la droite. Ce qui est retiré reste dans l'infobulle (définition du glossaire).
+  ⚠️ **La shortlist garde les noms entiers** : les deux rôles y sont listés ensemble, le préfixe
+  est la seule chose qui sépare deux `Points Per Pick`. Deux tests verrouillent les deux côtés.
 - **Cache** : `@st.cache_data` sur le chargement et le parsing des CSV (coûteux, immuable).
   Pas de cache sur du filtrage trivial. Toute fonction cachée renvoie un objet non muté ensuite.
 - Aucune écriture dans `data/`. Les CSV sont en lecture seule.
@@ -497,16 +596,140 @@ la page ne fait que lire et rendre.
       `catalogue.py` (agrégation + lookups)
 - [x] Page 3 : shortlist + fiche détaillée — critères empilables, radar, shot chart
 - [x] Logo `assets/triple_threat.svg` via `st.logo`, bouton `Reverse` retiré
+
+**Session 3 — 2026-08-17**
+- [x] Boutons `Shot quality` / `Pick & roll` sur la fiche de la shortlist (`src/ui/navigation.py`)
+- [x] **Tous les noms de colonnes viennent du glossaire** : `Column`/`Threshold`/`profile.Axis`
+      perdent leur champ `label`, `glossary.name()` + `glossary.DERIVED_NAMES` deviennent la
+      seule autorité de nommage, `glossary.family()` sert au regroupement des couvertures
+- [x] Seuils de tir ramenés à **un tir par match officiel**, arrondi au cran du slider
+      (`metrics.SEASON_MINIMUM` = 35)
+- [x] Panneau de minimums de la shortlist **supprimé**, remplacé par un second critère d'ouverture
+      (`attempts >= 35`)
+- [x] Planchers par tranche énoncés sous les figures, et **pilotés par le panneau** sur les boards
+- [x] Le message « too few to judge him here » dit comment le faire revenir
+- [x] Fiche shortlist passée **sous le tableau**, en deux étages (Shot quality / Pick & roll),
+      chaque bouton de board au-dessus de ses figures ; `Close` remplacé par un `st.expander` à clé
+- [x] Bloc **couvertures défensives** (volume + PPP) sur le board pick-and-roll et la fiche
+      shortlist ; `src/ui/facets.py` créé, médianes de tranche corrigées
+- [x] **Demi-terrain des spots de pick** (`profile_charts.pick_court`) : deux figures fusionnées
+      en une, ce qui rend la carte du board pick-and-roll lisible ; tuiles deux par rangée,
+      hauteur des barres proportionnelle à leur nombre
+- [x] Seuils pick par rôle (10 handler / 20 screener, sur un cran de 5), et figure des
+      couvertures sans seuil mais avec le compte de picks par couverture
+- [x] En-têtes des boards débarrassés de ce que leurs sélecteurs disent déjà
+      (`catalogue.short`) : plus de défilement horizontal sur le board pick-and-roll
+- [ ] **Piste étudiée, NON retenue** : déplier la fiche *dans* le tableau, sous la ligne du joueur.
+      `st.dataframe` est un canvas (glide-data-grid) sans API de ligne de détail, et on ne peut pas
+      y rendre d'élément Streamlit — un radar Plotly n'y entrera jamais. La seule voie sans
+      dépendance serait de remplacer la grille par une liste de `st.expander`, ce qui coûte le tri
+      par en-tête, la barre d'outils (recherche, menu de colonnes, export), et impose une
+      pagination (213 lignes × ~10 colonnes de widgets = plusieurs milliers d'éléments par rerun).
+      À ne rouvrir que si l'utilisateur accepte explicitement ces pertes.
+- [x] Shot chart de la shortlist repeint avec **la rampe du shot menu** (`_ZONE_TONE`), encre du
+      pourcentage choisie contre le remplissage (`theme.ink_on`), `DARK.zones[2]` nudgé
+- [x] **`README.fr.md`** : traduction mot pour mot du README, à tenir synchronisée (§1)
+
+**Session 4 — 2026-08-17**
+- [x] **Barre de portée globale** sur les trois pages, avec `min_attempts`, mémoire inter-pages
+      et ligne « 213 of 299 players are the league here »
+- [x] **Un seul vivier de percentiles** = cette barre, partout (tableaux, radar, médianes)
+- [x] **Seuils de couverture dérivés de la part de ligue** : de 25 uniforme à 5/1, éligibles
+      doublés, Blitz et Ice passent de 0 à 45 et 67
+- [x] Le critère de shortlist redevient **une seule condition** ; `OPENING` supprimé
+- [x] Percentiles sur les comptages, tableaux teintés + légende, percentile des comptages sur
+      les fiches, anneau médian sur le radar
+- [x] `.gitignore` en liste blanche, index reconstruit (45 fichiers suivis)
+- [x] `tests/test_core.py` — 66 tests verts
 - [ ] Page 4 : admin & usage analytics (§7ter)
-- [ ] Nom de l'application : à arrêter (§1)
+- [ ] Bonus : déploiement
+- [x] `tests/test_core.py` — 62 tests verts (nommage, seuil par match, planchers, préfixes de
+      board, appariement des rampes, contraste des encres)
+- [x] **`README.md` réécrit au format imposé par l'énoncé** : § Setup / § Metrics and why /
+      § Filtering, thresholds and normalisation / § Assumptions and limitations, puis
+      § How the code is organised. Le §3 est le plus long, c'est là que porte la note.
+- [x] **Second audit complet des CSV** (§4.5 et §4.6 points 8 à 12) : splits qui ne totalisent pas
+      `attempts`, NaN ≠ 0 à la source, colonnes mortes chiffrées, couverture du glossaire, rosters.
+      Deux affirmations de ce fichier étaient **fausses** et ont été corrigées : le max d'eFG et le
+      mécanisme de `segment_medians`.
+- [ ] Page 4 : admin & usage analytics (§7ter)
 - [ ] Bonus : déploiement
 
 **Décisions arrêtées** (ne pas rouvrir sans demande explicite)
 - Seuil sur le dénominateur de la métrique, pas sur `games_played`
 - Filtrage à deux étages population / échantillon
-- Percentiles sur population éligible uniquement
+- ⚠️ **UN SEUL VIVIER DE PERCENTILES POUR TOUTE L'APP : la ligue de la barre de portée**
+  (`thresholds.league_mask` = matchs joués + tirs tentés + transférés). Remplace la règle
+  « population éligible » et les trois viviers du §7ter. Motif utilisateur : un classement qui
+  bouge dès qu'un slider bouge est un chiffre qu'on ne peut pas emporter d'un écran à l'autre.
+  Conséquences :
+  - `ranking.add_percentiles(frame, columns, pool)` prend le vivier en paramètre ; `board.render`
+    le calcule **avant** `apply_population` et la shortlist passe `league=pool` ;
+  - **équipe et recherche par nom ne définissent PAS le vivier** — elles restreignent l'écran.
+    Sinon un lecteur qui tape un nom serait classé contre lui-même. `league_mask` vs
+    `apply_population`, test dédié ;
+  - **un joueur sous le seuil de la vue GARDE son percentile.** La ligne grisée dit que
+    l'échantillon est mince ; elle n'a plus à supprimer le chiffre qui le situe. §6 point 3
+    (tiret dans la colonne de rang) est **annulé** ;
+  - le radar aussi : `profile.radar_scores` note tout le monde contre le vivier.
+    `Axis.minimum` ne sert plus qu'à décider si **LUI** est placé (trou), pas à tailler un
+    sous-vivier par axe ;
+  - les **médianes de tranche** (`segment_medians`) se calculent sur ce même vivier, en plus du
+    filtre par `min_count` de la tranche. Les deux conditions tiennent.
 - Pas de shrinkage dans la version principale
 - Sliders de seuils de 0 au max observé, dans un expander fermé par défaut
+- **La barre de portée est GLOBALE et présente sur les TROIS pages** (`filters.scope_row`),
+  y compris la shortlist. Annule la décision « la shortlist n'a PAS de barre de portée ».
+  Elle porte **équipe / matchs minimum / tirs minimum / recherche / transférés**, et
+  `PopulationFilter.min_attempts` (défaut `SEASON_MINIMUM` = 35) est un champ à part entière.
+  - **Ses réponses survivent au changement de page** : Streamlit détruit l'état d'un widget non
+    rendu au run précédent, donc le choix est mémorisé hors widget (`filters._STORE`, un dict)
+    et les widgets sont semés depuis lui. Sans ça, passer de la shortlist à un board remettait
+    15 matchs en silence.
+  - **Une ligne sous la barre dit ce qu'elle coûte** (`filters.scope_reading`) : « 213 of 299
+    players are the league here ». Un lecteur à qui on montre 213 noms ne peut pas savoir si le
+    fichier en contient 220 ou 500.
+  - **`load_pick_profiles` embarque `attempts`** (jointure depuis le fichier tir) : la barre est
+    globale, donc chaque page doit pouvoir répondre à ses deux questions. Les 4 joueurs
+    présents seulement dans picks tombent hors d'une portée qui demande des tirs, ce qui est
+    correct — ils n'ont aucun événement de tir.
+- **Les seuils de split sont DÉRIVÉS de la part de ligue** (`pick_views.split_minimum` +
+  `LEAGUE_SHARE`) : `barre du rôle × part de la couverture`, arrondie **vers le bas** au cran du
+  slider, plancher 1. Remplace `COMMON_MINIMUM = 25` / `RARE_MINIMUM = 3`, supprimés.
+  Motif : 25 par couverture exigeait bien plus d'un split que le board n'exige du tout (handler
+  mesuré à 10 picks, mais 25 exigés vs une seule couverture) → 97 éligibles vs Over, 54 vs
+  Under, **0 vs Blitz et vs Ice**. Résultat : handler Over 5, tout le reste 1 ; screener Show 5,
+  Soft 5, reste 1. Éligibles sur les 213 : Over 122, Under 143, Switch 147, Ice 67, Blitz 45.
+  Les `LEAGUE_SHARE` sont **remesurées par un test** sur les CSV. Les spots de terrain suivent
+  la même règle. ⚠️ Les parts sont identiques pour les deux rôles, et c'est normal : un écran
+  switché est un événement, compté une fois de chaque côté.
+- **Un critère de shortlist est UNE condition, la valeur.** Annule « un critère filtre sur DEUX
+  conditions ». `Criterion.minimum`, `shortlist.default_minimum`, `FALLBACK_MINIMUM` et
+  `criteria._minimum_input` sont **supprimés**. Motif utilisateur, littéral : demander 40 % à
+  trois points exigeait en silence 40 tentatives, donc un nom pouvait manquer pour une raison
+  illisible à l'écran. Ce qui protège l'échantillon est désormais la barre de portée, visible.
+  `shortlist.OPENING` disparaît aussi : la page s'ouvre sur **une rangée vide**
+  (`criteria._OPENING_ROWS = 1`), le périmètre étant au-dessus.
+- **Les comptages DEVIENNENT des percentiles en mode percentile** (tirs, trois points, picks,
+  matchs joués). Annule « les colonnes de comptage restent des comptages ». Le tableau s'ouvre
+  sur les valeurs, la bascule est à un clic, donc rien n'est perdu ; et « 615 picks » ne veut
+  rien dire tant que ce n'est pas « 96ᵉ percentile ».
+- **Le mode percentile est TEINTÉ** (`tables.tint_percentiles`, `theme.percentile_tint`) : un
+  seul bleu dont l'alpha suit le classement, plus une légende en cinq crans
+  (`tables.percentile_key`), sur les deux tableaux. **Jamais de rouge-vert** — ça se lirait
+  comme bon-mauvais, et une part élevée de tirs contestés n'est pas une vertu. Ordre de peinture
+  dans `tables.style` : colonne triée → teinte de percentile → ligne du joueur chargé (une
+  teinte qui porte une valeur bat un indice d'ordre, et le joueur à l'écran bat les deux).
+- **Les comptages de la fiche portent leur percentile** : tuiles du board (`panel._headline`,
+  « 615 events (96th) ») et fiche shortlist (`detail._role` via `profile.standing`).
+- **Le radar porte un anneau pointillé au 50ᵉ percentile** (`profile_charts.MEDIAN_RING`) :
+  une forme sur une toile ne dit rien sans une ligne de lecture.
+- **`.gitignore` en liste blanche** : tout est exclu (`*`), seuls le code source, `requirements.txt`,
+  `README.md`, `assets/*.svg`, `.streamlit/config.toml` et `data/*.csv` sont réadmis. ⚠️ Les
+  motifs de dossier sont **ancrés** (`/logs/`) : écrit `data/`, le motif mordrait aussi
+  `src/data/`, qui est du code. Les CSV **restent versionnés** — l'énoncé exige que
+  `pip install` puis `streamlit run app.py` marche sur un clone neuf. Sont exclus : `main.py`
+  (reliquat vide), `CLAUDE.md`, `README.fr.md`, `*.docx`, `__pycache__`.
 - **Un seul slider par vue.** Le seuil pilote la métrique principale de la vue ; les colonnes de
   contexte portent un plancher fixe (`Column.min_sample`) et se blanchissent seules. Multiplier les
   sliders alourdit l'interface sans rien protéger de plus.
@@ -571,6 +794,30 @@ la page ne fait que lire et rendre.
 - **`src/ui/board.py` contient le corps de page complet.** Une page = un titre + un appel à
   `board.render(frames, lenses, caption)`. Ne jamais recopier la logique d'orchestration dans une
   page : c'est ce qui garantit la charte graphique identique partout (§7bis).
+- **La fiche de la shortlist est SOUS le tableau, en DEUX étages de deux colonnes**, chacun
+  surmonté du bouton de SON board :
+  - étage 1 **Shot quality** : radar | (shot chart puis shot menu, superposés) ;
+  - étage 2 **Pick & roll** : Ball Handler | Screener, chaque colonne portant le terrain des
+    spots ET le bloc couvertures de CE rôle.
+  Le radar voyage avec le tir bien que la moitié de ses branches soit pick-and-roll : il se lit
+  comme un profil, et lui donner un étage à lui seul faisait une carte à trois niveaux pour une
+  figure. Une colonne par rôle plutôt qu'un seul rôle principal : les deux rôles n'affrontent pas
+  les mêmes couvertures, donc n'en montrer qu'un obligerait à jeter l'autre jeu de cinq.
+  La fiche dit *ce qu'est* un joueur, un board dit *où il se
+  situe* : un bouton se lit comme la suite des figures qu'il surmonte, pas comme une rangée
+  d'actions en haut de carte n'appartenant à rien. **Rien n'est transmis** — `selection.SELECTED`
+  est du `session_state`, donc global à l'app : le joueur est déjà chargé quand le board s'ouvre
+  (vérifié par `AppTest` sur `app.py`, pas sur la page seule — `st.switch_page` résout ses chemins
+  par rapport au script principal, donc lancer la page directement échoue alors que l'app
+  fonctionne). Les chemins de pages vivent dans `src/ui/navigation.py` et `app.py` les lit de là.
+- **La fiche de la shortlist est un `st.expander`, sans bouton `Close`.** Replier remplace fermer ;
+  rien n'est déchargé, donc la ligne reste marquée dans le tableau. La `key` de l'expander
+  **contient le nom du joueur** : l'état plié/déplié est mémorisé par widget, donc sous une clé
+  partagée un lecteur qui l'aurait replié cliquerait un autre joueur et ne verrait rien se passer.
+  Clé par joueur = nouveau widget = rouvert. `st.expander` n'accepte `key` que depuis Streamlit
+  1.61 ; sans elle, ce comportement serait impossible à obtenir.
+  ⚠️ Conséquence : **la shortlist n'a plus de désélection**. Les boards gardent leur bouton
+  `Clear` (`panel.card`) ; ici on replie. Décision de l'utilisateur.
 - **`Lens.dataset` dit quel fichier charger**, `Lens.profile` décrit les deux figures de la fiche
   joueur (`breakdown` = répartition sans seuil, `comparison` = valeur par tranche avec seuil propre),
   `Lens.view_label` nomme le sélecteur de sous-vue (« Shot type », « Coverage »).
@@ -578,14 +825,21 @@ la page ne fait que lire et rendre.
   coverage=..., spot=...)`. 599 colonnes ne se tapent pas à la main. Idem pour `DENOMINATORS` côté
   picks, généré par `metrics._pick_denominators()`.
 - **Une métrique filtrable porte ses splits, elle ne se répète pas** (`Filterable.variants`).
-  42 entrées au lieu de 96 : le sélecteur liste l'idée (« Points per pick »), la couverture se
-  choisit juste à côté (`Lens.view_label` → « Coverage » / « Shot type »). Historique du bug :
-  chaque vue de couverture répète les mêmes libellés, donc un titre construit sur groupe + libellé
-  désignait **6 colonnes** et le sélecteur en gardait silencieusement une, la dernière (Ice).
-  Deux tests verrouillent ça.
-- **Les en-têtes du tableau shortlist sont désambiguïsés par le groupe quand ils se répètent.**
-  « Points per pick » existe pour les deux rôles ; sans préfixe, la seconde colonne écrasait la
-  première dans le tableau **et dans l'export CSV**.
+  41 entrées au lieu de 96 : le sélecteur liste l'idée (« Ball Handler - Points Per Pick »), la
+  couverture se choisit juste à côté (`Lens.view_label` → « Coverage » / « Shot type »).
+  **Le regroupement se fait sur `glossary.family(key)`** — le `display_name` privé de son suffixe
+  `(vs …)` — et non sur un libellé écrit à la main. Le glossaire écrit lui-même la couverture dans
+  le nom (`Ball Handler - Points Per Pick (vs Over)`), donc c'est la donnée qui dit ce qui est une
+  variante de quoi. La regex est ancrée en fin de chaîne et gourmande, pour que `(vs Soft (Drop))`
+  parte d'un bloc. Historique du bug : les libellés manuels étant identiques d'une couverture à
+  l'autre, un titre construit sur groupe + libellé désignait **6 colonnes** et le sélecteur en
+  gardait silencieusement une, la dernière (Ice). Trois tests verrouillent ça.
+- **`Filterable.title` est le nom du glossaire seul**, sans préfixe de lentille : le nom porte déjà
+  le rôle et le split (`Ball Handler - …`, `Three-Point Zone - …`), et « Shot distance · % from
+  three » était justement le libellé jugé illisible. Le groupe ne sert plus qu'à trier (totaux de
+  saison en tête, puis alphabétique **insensible à la casse**, sinon `eFG%` tombe derrière toutes
+  les majuscules) et à désambiguïser un en-tête si deux colonnes venaient à partager un nom
+  (`columns._header`, garde-fou verrouillé par `test_filterable_titles_are_unique`).
 - **Le tableau shortlist contient TOUTES les métriques**, `column_order` décide seulement de
   celles ouvertes à l'écran. Le menu de visibilité de colonnes de Streamlit (barre d'outils du
   tableau, en haut à droite) permet alors d'en rappeler n'importe laquelle — le choix des colonnes
@@ -595,15 +849,41 @@ la page ne fait que lire et rendre.
 - **Infobulles du glossaire sur toutes les colonnes du tableau shortlist**, y compris celles que le
   lecteur rappelle lui-même : `results._column_config` couvre tout le catalogue, pas seulement les
   colonnes ouvertes.
-- **Expander « Minimum shots behind each number » sur la shortlist : 7 sliders, pas 24.** Règle —
-  ce sont les comptages que les boards protègent eux-mêmes (`view.threshold.key`), **moins les
-  splits de couverture**, qui se règlent sur le critère lui-même. Tous les autres comptages gardent
-  le plancher que leur board applique déjà (`columns._baseline_floors`, ex. Open 3PT% blanchi sous
-  10 tirs ouverts). C'est un **filtre d'affichage**, pas de population : le joueur reste dans la
-  liste, seul le chiffre que son échantillon ne soutient pas disparaît.
-- **Les comptages nus sont renommés en clair** (`columns._PLAIN_NAMES`) : le glossaire dit
-  « Attempts » et « Made », ce qui ne veut rien dire à côté de douze autres comptages → « Field goal
-  attempts », « Field goals made ».
+- **La shortlist n'a PLUS d'expander « Minimum shots behind each number ».** Supprimé
+  (`results.minimums` et `columns.denominators()` n'existent plus) : un board gate **une** métrique
+  à la fois, donc son panneau a un sens ; la shortlist les montre toutes, et une seconde batterie
+  de sliders à côté de critères qui portent **déjà** leur compteur était un minimum que personne
+  n'avait demandé, posé à côté de ceux que le lecteur a écrits. Ce qui protège un chiffre ici est
+  la barre visible. Historique : le panneau avait été taillé de 24 à 11 puis à 7 sliders — le fait
+  qu'il faille trois passes pour décider lesquels garder disait déjà qu'il n'avait pas sa place.
+  **Les planchers des boards, eux, restent** (`columns._baseline_floors` : Open 3PT% blanchi sous
+  10 tirs ouverts). Ils ne sont pas à cette page de les fixer, et sans eux la shortlist serait le
+  seul endroit où un chiffre mince passe. Test dédié.
+- **Grisé ou blanchi : les deux existent et ne disent pas la même chose.** Ligne **grisée**
+  (`theme.Palette.muted`, `tables.style`) = « ce joueur n'est pas mesuré sur la métrique dont parle
+  cette vue » — il garde ses valeurs, son percentile passe au tiret. Cellule **blanchie**
+  (`fmt.BLANK`, `tables.build` et `columns._gate`) = « ce chiffre précis n'a pas l'échantillon ».
+  La shortlist n'a **pas** de métrique de tête, donc pas d'éligibilité de ligne : tous ses seuils
+  sont par cellule, donc blanchis — même langage que les colonnes de contexte des boards. Griser
+  la cellule serait un troisième signal, et exposerait un nombre bruité que le lecteur comparerait
+  quand même (aux défauts : 132 joueurs sur 220 sous 50 picks en screener). Le blanc les exclut
+  aussi du vivier des percentiles, comme l'exige §6 point 4.
+- **La shortlist s'ouvre sur DEUX critères : `games_played >= 15` et `attempts >= 34`**
+  (`shortlist.OPENING`, tuple, aligné sur `thresholds.DEFAULT_MIN_GAMES` et
+  `metrics.SEASON_MINIMUM`). Le premier est le périmètre de la barre de portée des boards, le
+  second le plancher de tir que les boards appliquent — la page n'ayant plus de panneau de
+  minimums, c'est **la seule** protection d'échantillon, donc elle doit être visible. Le lecteur
+  peut monter, baisser ou retirer chacune. 213 joueurs sur 299 à l'ouverture.
+  Conséquences : `criteria._STORE` démarre à `len(OPENING)` (donc 2 rangées), `_opening_index` et
+  `_opening(index)` distribuent les barres semées rangée par rangée. Tests dédiés : le critère
+  matchs retient exactement la même population que `apply_population` par défaut, et le critère
+  tirs mord par-dessus.
+- **Le mode d'ouverture d'un critère suit la nature de la métrique** (`criteria._mode_index`) :
+  `Percentile` pour un taux (« les 20 % meilleurs » est la question du scout), `Value` pour un
+  comptage — personne ne demande un joueur dans le top 20 % des matchs joués.
+- ~~**Les comptages nus sont renommés en clair**~~ — **annulé.** Décision remplacée par la règle
+  « aucun libellé écrit à la main » (§7) : le glossaire dit « Attempts » et « Made », et c'est ce
+  qui s'affiche. Le nom nu n'est plus ambigu puisque tous ses voisins portent leur split.
 - **Bascule valeurs / percentiles sur la shortlist aussi**, comme sur les boards. ⚠️ Les percentiles
   se mesurent sur la **LIGUE ENTIÈRE** (`columns.build(..., league=players)`), jamais sur la
   shortlist : sinon une shortlist de shooteurs afficherait son moins bon en 1ᵉʳ percentile. Bug
@@ -613,17 +893,130 @@ la page ne fait que lire et rendre.
   mémoïsation le rendu du tableau passe de 36 à 13 ms (valeurs) et de 79 à 47 ms (percentiles).
   Ne pas cacher `build()` lui-même : il dépend des sliders, et hacher un DataFrame de 300×825
   coûterait plus cher que le calcul.
+- **Le shot chart porte la MÊME rampe que le shot menu** (`profile_charts._ZONE_TONE`). Les deux
+  figures sont empilées sur la même colonne de la fiche shortlist et toutes deux ordonnées en
+  s'éloignant du cercle : une distance ne peut donc pas changer de couleur de l'une à l'autre. Le
+  ton d'une zone est son **rang dans `schema.NBA_ZONES`**, jamais une couleur écrite à la main —
+  cercle le plus clair, trois points le plus sombre, dans les deux figures. Les conventions
+  diffèrent (4 zones SkillCorner en bas, 5 zones NBA en haut) mais s'alignent : le trois points du
+  menu se scinde en corner et above-the-break, et c'est **exactement à ça que sert le 5ᵉ ton ajouté
+  au bout sombre**. Le gris `muted` sous le seuil est conservé — c'est la seule chose que la
+  couleur dit encore ici. `opacity` du marqueur passé de 0.85 à 1 : un ton adouci n'est plus le ton
+  que le menu imprime pour cette zone.
+  - **Le texte posé SUR une marque se lit contre la marque, pas contre la page** :
+    `theme.ink_on(fill)` renvoie le noir ou le blanc qui contraste le mieux avec le remplissage
+    (luminance relative WCAG). Une seule encre pour tout le nuancier laisserait le pourcentage
+    illisible à l'une des deux extrémités de la rampe.
+  - **Un ton du thème sombre a été déplacé pour ça** : `DARK.zones[2]` passe de `#2a78d6` à
+    `#2570cc`. L'ancien tombait dans la bande étroite de luminance où **ni** le noir **ni** le blanc
+    n'atteint 4,5:1 (4,46 et 4,32). Un test tient les 10 tons des deux rampes à cette barre.
 - **Le marqueur corner 3 du shot chart est posé HORS du terrain** (`x = -4.5`), relié par un trait.
   Le couloir de corner fait trois pieds de large : aucun marqueur lisible n'y tient. Posé à x=6 il
   débordait de la ligne de touche **et se lisait comme un tir de mid-range**.
+- **« What the defence does about it » : une barre 100 % + des barres de PPP, par couverture.**
+  `metrics.Facet` (paire figure-répartition / figure-valeur, autonome) accroché en option à
+  `Profile.coverage` ; construit par `pick_views._coverage_facet(role)`, rendu par
+  `ui/facets.coverage_block`, affiché sur le board pick-and-roll ET sur la fiche shortlist. Motif :
+  le board se parcourt déjà couverture par couverture, mais c'est six clics pour comparer six
+  chiffres, et surtout ça ne dit pas **ce qu'il affronte le plus**. Les deux questions se lisent
+  ensemble ou pas du tout — un bon PPP contre le blitz ne vaut rien s'il le voit deux fois.
+  - **Les parts par couverture sont DÉRIVÉES** (`schema.coverage_share`, `aggregate`) : le fichier
+    livre `pick_rate_at_{spot}` mais rien par couverture. Les cinq couvertures couvrent bien la
+    totalité des picks (minimum observé 98 %), ce qui justifie la barre 100 % — test dédié.
+  - **Ce facet garde SES propres seuils** et ne suit pas le panneau, contrairement aux tranches de
+    `Profile.comparison` : il compte les picks contre UNE couverture, pas ceux sur lesquels la vue
+    est bâtie. Demander 50 picks vs Blitz viderait la figure pour toute la ligue. Seuils = ceux de
+    la vue correspondante (`_coverage_minimum` : 3 si rare, 25 sinon), et `facets._floors` énonce
+    les deux chiffres.
+  - `Palette.zones` passe à **5 tons**, le cinquième ajouté **au bout sombre** : zones de tir (4) et
+    court spots (3) prennent les premiers, donc rien de déjà dessiné ne change de couleur.
+  - Les barres de PPP sont peintes avec **la même rampe dans le même ordre** que la barre empilée
+    (`charts.comparison_bars(..., ramp=True)`), donc les teintes appairent les deux figures. Entre
+    les deux, la **légende porte le nombre de picks par couverture** — comme le shot menu sous sa
+    propre barre. Elle avait été retirée pour compacter : c'était une erreur, ce compte est
+    précisément ce qui permet de se passer de seuil.
+  - **`COVERAGE_MINIMUM = 1` : cette figure ne cache RIEN.** Seule exception à la règle du seuil,
+    et elle se justifie : c'est une **fiche**, pas un classement — personne n'y est placé contre
+    personne, et le compte est écrit à côté de chaque tranche, donc le lecteur juge l'échantillon
+    lui-même. À 25 (la barre des boards de couverture) **aucun joueur de la ligue** n'avait de
+    chiffre contre le blitz ni contre l'ice : ça se lit comme une donnée manquante, pas comme une
+    couverture rare. Le plancher de 1 sert seulement à ne pas imprimer un PPP sur zéro pick.
+    Test dédié.
+- **Les spots de picks se lisent sur un DEMI-TERRAIN, pas en deux figures**
+  (`profile_charts.pick_court`, `core.profile.spot_returns`, `facets.spots_block`). Remplissage =
+  part de ses picks à ce spot (échelle relative à SON spot le plus chargé, sinon trois zones qui se
+  partagent un joueur n'atteignent jamais le haut d'une rampe 0-100), chiffre écrit dessus = PPP,
+  zone grise et chiffre retiré sous le seuil. Motif : « où il pose ses écrans » et « ce que chaque
+  spot rapporte » sont **une** question posée deux fois, et la poser deux fois est l'essentiel de
+  ce qui rendait la carte du board pick-and-roll illisible sans scroller.
+  Ailes et step-ups sont dessinés **des deux côtés avec le même chiffre** (un seul chiffre dans les
+  données) : n'en colorier qu'un se lirait comme un joueur qui ne pose jamais d'écran à gauche. Dit
+  en légende, comme le corner 3 du shot chart.
+  Piloté par `Profile.on_court` : le board tir garde ses deux figures (ses zones ont déjà leur
+  propre shot chart, bâti sur les colonnes NBA). Deux tests verrouillent l'alignement
+  `breakdown`/`comparison` et le fait que chaque `COURT_SPOT` a bien une boîte sur le plan.
+- **Budget vertical de la carte du board** (le lecteur doit pouvoir lire sans scroller) :
+  `comparison_bars` a désormais une **hauteur fonction du nombre de barres** (`40 + 32 n`) — cinq
+  couvertures dans une boîte taillée pour trois étaient illisibles — et `panel._headline` dispose
+  les tuiles **deux par rangée** au lieu de quatre de front : les noms du glossaire sont longs et
+  la carte est le côté étroit du board, `Ball Handler - Assist Opportunity Rate` sur un quart de
+  colonne se repliait sur cinq lignes.
+- **La médiane d'une tranche se calcule sur les joueurs QUI ONT la tranche** (`segment_medians`).
+  Bug corrigé. ⚠️ **Le mécanisme n'est PAS celui écrit initialement** (« un joueur sans pick porte
+  0,00 ») : vérifié sur les CSV, une tranche jamais jouée porte **NaN**, pas 0 — 72 joueurs sans
+  pick handler, 243 sans pick vs blitz, tous en NaN — et `league_median` les écarte déjà par
+  `dropna()`. Ce qui tire la médiane vers le bas, ce sont les **petits échantillons réels** :
+  un joueur avec deux step-ups qui n'a rien marqué porte un vrai 0,00. Chiffres :
+  `screener_ppp_at_stepUp` médiane **0,09** sur tout le fichier contre **0,32** parmi ceux qui ont
+  25 picks à ce spot ; `screener_ppp_at_wing` 0,15 contre 0,27. Même règle que pour les percentiles
+  (§6 point 4), appliquée à la ligne de référence. Test dédié.
+- **`src/ui/facets.py` porte ce que les DEUX fiches dessinent** (légende de barre empilée, bloc
+  couverture). `panel._legend` et `detail._legend` étaient déjà deux copies divergentes de la même
+  fonction (marges 12 vs 14 px) — c'est le signe qu'il fallait un module, pas une troisième copie.
 - **Le radar n'a pas de tableau sous lui** : l'infobulle porte la valeur brute et le percentile, et
-  les sommets sont **nommés comme les colonnes des tableaux** (`eFG%`, `Points per pick`, pas
-  « Efficiency » ni « Pick production ») pour que le lecteur n'ait aucune traduction à faire.
-- **Une colonne appartient à la première lentille qui l'affiche** (`shortlist.options`). Le nombre
-  total de tirs à 3 points figure sur le board contestation pour le contexte, mais c'est un fait de
-  distance de tir, pas de contestation : il est donc rangé sous « Shot distance ».
+  les sommets sont **nommés comme les colonnes des tableaux** — c'est-à-dire par le glossaire
+  (`eFG%`, `Ball Handler - Points Per Pick`, pas « Efficiency » ni « Pick production ») pour que le
+  lecteur n'ait aucune traduction à faire. Les noms ne sont **jamais raccourcis** ; ils sont
+  seulement **repliés** sur plusieurs lignes (`profile_charts._wrapped`, coupure d'abord sur le
+  ` - ` du glossaire puis entre mots à 18 caractères), et le nom entier passe par `customdata`
+  pour que l'infobulle le montre d'un bloc. Marges et hauteur du polaire élargies en conséquence.
+- **Une colonne appartient à la première lentille qui l'affiche** (`shortlist.options`). La part de
+  tirs au cercle est imprimée par trois boards et reste un fait de distance : elle est rangée sous
+  « Shot distance ».
+- **Les totaux de saison ne relèvent d'aucune lentille** : groupe **« Season totals »**
+  (`shortlist.GENERAL_GROUP` / `_SEASON_TOTALS`), revendiqué **avant** les lentilles dans
+  `options()`. Il contient `games_played`, `attempts`, `two_attempts`, `three_attempts` — des faits
+  de volume et de présence, de même nature que les matchs joués, pas des réponses à la question que
+  pose un board. Rangés sous « Shot distance » ou « Shot contestation », ils étaient cherchés là où
+  personne ne les cherche. Aucun dénominateur : un total est un total (§5.3). Le groupe **ouvre le
+  sélecteur de critères** (tri dans `criteria.builder`), le reste suit par ordre alphabétique.
+  Conséquences verrouillées par tests :
+  - `columns.catalogue_columns()` démarre son `seen` avec `_IDENTITY` — le tableau porte déjà
+    `Games Played` à côté du nom, l'émettre à nouveau doublerait la colonne ;
+  - `columns._plain_names()` **a été supprimé** : il renommait « Attempts » en « Field goal
+    attempts » parce que le nom nu ne disait rien à côté d'une douzaine d'autres comptages. Ce
+    n'est plus vrai — tous les autres portent désormais leur split du glossaire (`Contested -
+    Attempts`, `3PT Attempts`, `Ball Handler - Picks`), donc le nom nu **est** celui de la saison
+    entière. `columns.count_name` = `glossary.name`, un seul chemin ;
+  - `opening_columns` retombe sur `_DEFAULTS` quand les critères n'ouvrent aucune colonne de
+    métrique — une shortlist bâtie sur les seuls matchs joués s'ouvrirait sinon sur trois colonnes
+    d'identité et rien à lire ;
+  - la ligne de lecture d'un critère sans dénominateur dit « of the 299 players », **sans** « with
+    enough events » : promettre un seuil d'échantillon là où il n'y en a pas serait faux.
+  Les totaux de picks (`{role}_total_picks`) **restent dans leur lentille** : ce sont des faits de
+  rôle, et ils portent déjà leurs variantes de couverture.
+- **La shortlist n'a PAS de barre de portée** (§7bis point 3 : exception explicite, les boards la
+  gardent). Tout ce qui restreint la ligue y est un critère, matchs joués compris. Deux raisons :
+  les boards servent à regarder une population, la shortlist à en construire une ; et le percentile
+  écrit sous chaque barre est mesuré sur la **ligue entière** — un filtre de portée par-dessus
+  laisserait cette ligne décrire une liste que personne ne voit. Conséquence assumée : l'équipe et
+  le toggle « transférés » disparaissent de cette page (aucun agrégat par équipe ici, donc §4.6
+  point 3 ne s'applique pas), et la recherche par nom passe par la **barre d'outils de
+  `st.dataframe`**, qui embarque son propre champ de recherche. Ne pas réintroduire `scope_row`
+  sur cette page.
 - **Le mode par défaut d'un critère est `Percentile`** : « les 20 % meilleurs » est la question avec
-  laquelle un scout arrive, la valeur exacte est ce qu'il ajuste ensuite.
+  laquelle un scout arrive, la valeur exacte est ce qu'il ajuste ensuite. **Sauf pour un comptage**,
+  qui s'ouvre en `Value` (voir plus bas).
 - **Une barre de critère se règle en valeur OU en percentile**, et la ligne sous la rangée énonce
   toujours les deux (« 39.5% — 80th percentile, keeping the top 20% of the 125 players with enough
   events »). Les pourcentages se saisissent **en pourcentage** (34.2, pas 0.342) et la case s'ouvre
@@ -644,6 +1037,29 @@ la page ne fait que lire et rendre.
   et above-break. Aucune colonne de pourcentage n'existe pour elles → `shortlist.zone_accuracy`
   calcule `mades / attempts` avec `safe_ratio`, NaN et non zéro quand rien n'a été tenté. Les corner
   threes sont un seul chiffre pour les deux corners, dit en clair sur la légende.
+- **Tout plancher par tranche est ÉNONCÉ sous sa figure, franchi ou non.** `panel._thin_segments`
+  (« Measured from 35 shots upwards, as set above. Too few, so nothing is shown for: … ») et la
+  légende du shot chart de `detail.py`. Une barre grise ou une case vide ne dit pas au lecteur si
+  le chiffre est absent ou nul : il faut lui donner le nombre, et pas seulement quand le joueur
+  échoue — sinon le seuil n'est connaissable que par accident. `detail.ZONE_MINIMUM` **dérive** de
+  `schema.ZONE_MIN_ATTEMPTS`.
+- **Sur les BOARDS, le plancher des figures par tranche est celui du panneau, pas le sien.**
+  `panel.card(..., minimum)` → `_profile` remplace le `Segment.min_count` de toutes les tranches
+  par `max(minimum, 1)` (`dataclasses.replace`, le `Profile` du catalogue n'est jamais muté).
+  Motif : le panneau demandait 35 tirs pendant que la figure en demandait 20 sans le dire — deux
+  nombres sur un écran, et aucun moyen de savoir lequel s'applique. Le lecteur en choisit **un**,
+  c'est celui-là. Le plancher `1` évite d'imprimer un pourcentage sur une zone jamais tentée.
+  Conséquence assumée : sur une couverture rare (Blitz, défaut 3), le PPP par zone de terrain se
+  lit à partir de 3 picks — plus permissif que les 25 d'avant, mais c'est la barre que le lecteur a
+  posée et la légende l'énonce. La **shortlist** garde `ZONE_MIN_ATTEMPTS` fixe : elle n'a pas de
+  panneau de minimums à suivre (§ shortlist).
+- **Un joueur écarté par le seuil apprend comment revenir.** `panel.card` ne dit plus seulement
+  « too few to judge him here » : il nomme le panneau (`filters.minimum_title(view)`) et dit de le
+  baisser. Sans ça le lecteur croit que l'app a tranché contre le joueur alors que c'est sa propre
+  barre. **Sauf s'il n'a aucun événement** : là, baisser le seuil ne le ramène pas, et le promettre
+  serait faux — la phrase reste « nothing to judge here ».
+  `filters.minimum_title` / `events_word` déduisent « shots » ou « picks » de `threshold.key`, donc
+  le board pick-and-roll ne réclame plus un minimum de *tirs*.
 - **`tables.layout(view)` est la seule source de la composition du tableau** — `build`,
   `column_config` et `sort_targets` en dérivent tous. Elle déduplique : une colonne de comptage déjà
   affichée pour elle-même n'est pas réaffichée comme taille d'échantillon d'un taux qui en dépend
@@ -692,6 +1108,32 @@ la page ne fait que lire et rendre.
 - **Thème détecté via `st.context.theme["type"]`**, pas `st.get_option("theme.base")` qui ne renvoie
   que la config. La grille est en `rgba(137,135,129,0.22)` : lisible sur les deux fonds même si la
   détection se trompe au premier rendu.
+- **Le glossaire est indexé une fois, pas à chaque infobulle** : `@cache` sur `glossary._index` et
+  `glossary.definition`. Sans lui, `_index` reparcourait les 827 lignes à chaque appel, `definition`
+  l'appelle jusqu'à 3 fois (les deux datasets), et `columns.column_config` demande une définition
+  pour les 105 colonnes du catalogue → ~300 reconstructions par rerun, **293 ms mesurées, tombées à
+  2,4 ms**. `MetricInfo` est frozen et personne ne mute le dict, donc le partage est sûr. Même
+  raison que `catalogue_columns` : c'est de la configuration, pas de la donnée filtrée, donc
+  `functools.cache` et surtout pas `st.cache_data`.
+- **`columns.build` assemble le tableau en un `pd.concat`**, pas colonne par colonne : 105
+  affectations successives faisaient recopier un bloc fragmenté à chaque fois (pandas le signalait
+  lui-même par `PerformanceWarning`).
+- **Le bloc de critères est un `@st.fragment`** (`criteria._rows`). Empiler une ligne, ou ouvrir un
+  sélecteur de métrique, ne change **la liste de personne** : rerunner toute la page pour ça
+  reconstruisait le tableau, l'export CSV et toutes les figures d'une fiche ouverte. Le fragment se
+  redessine seul et ne réclame le rerun global (`st.rerun(scope="app")`) que si le tuple de
+  `Criterion` a réellement changé — comparaison par valeur, les dataclasses sont frozen. Les
+  critères transitent par `st.session_state["criteria_built"]` : un rerun de fragment ne délivre
+  aucune valeur de retour à la page. Au tout premier run, `previous is None` → on stocke sans
+  rerunner, la page est encore en train de descendre et lira le store juste après.
+- **Les boutons `Add a criterion` / `Remove the last` passent par `on_click`, jamais par
+  `st.rerun()` en ligne.** Le rerun inline coupait le script à la rangée de boutons : tout ce qui
+  avait déjà été streamé en dessous (fiche joueur, tableau) était démonté le temps d'une frame avant
+  d'être repeint. Le callback met le compteur à jour **avant** que le corps ne s'exécute, donc un
+  seul rendu, directement dans l'état final. Les deux boutons sont **toujours dessinés** et grisés
+  aux bornes (`disabled`) : en cacher un retirait une colonne de la rangée et faisait glisser
+  l'autre sous le curseur. Le `min`/`max` de `_stack` remplace les gardes de rendu, pour qu'un
+  double-clic juste avant la désactivation ne sorte pas du bornage.
 
 **Questions ouvertes**
 - Nom de l'application — piste retenue : le vocabulaire de la **menace offensive**, puisque c'est

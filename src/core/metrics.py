@@ -9,7 +9,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.data import schema
+from src.data import glossary, schema
+
+#: How far every minimum slider moves per notch. One step for the whole app, so a
+#: default is expected to sit on a notch: a bar of eight, reachable from neither
+#: five nor ten, is a bar the reader loses the first time he nudges the control.
+#: Defaults below one step are the exception — three picks against the blitz opens
+#: under the slider's first stop, and zero is the way back to seeing everybody.
+MINIMUM_STEP: int = 5
+
+
+def _on_a_notch(value: int) -> int:
+    """Round a minimum up to the next slider notch."""
+    return -(-value // MINIMUM_STEP) * MINIMUM_STEP
+
+
+#: What a shooting rate has to rest on before a board prints it, expressed the way
+#: a scout would say it: **one attempt per official game**. Over a 34-round ACB
+#: regular season that is 34 shots, rounded up to the slider's 35 — enough that a
+#: percentage is not noise, low enough that every rotation player is measured
+#: rather than only the volume scorers. Stated per game rather than as a bare
+#: number so the figure can be read back: 35 is not a threshold anybody would
+#: recognise on its own.
+SHOTS_PER_GAME: int = 1
+SEASON_MINIMUM: int = _on_a_notch(SHOTS_PER_GAME * schema.REGULAR_SEASON_GAMES)
 
 #: Format keys interpreted by `src.ui.format`. Plain strings, so this module
 #: stays free of any interface dependency.
@@ -22,20 +45,32 @@ DEC2: str = "dec2"
 
 @dataclass(frozen=True)
 class Column:
-    """One column of a league table."""
+    """One column of a league table.
+
+    It carries no name of its own: the header comes from the data dictionary, so
+    a table, a criterion and the CSV always call the same number the same thing.
+    """
 
     key: str
-    label: str
     fmt: str
     sample: str | None = None
     min_sample: int = 0
     is_rank_basis: bool = False
     is_context: bool = False
 
+    @property
+    def label(self) -> str:
+        """The column's name, as `metric_glossary.csv` writes it."""
+        return glossary.name(self.key)
+
 
 @dataclass(frozen=True)
 class Axis:
-    """One axis of a scatter plot."""
+    """One axis of a scatter plot.
+
+    This label is a sentence rather than a name — "% of his shots taken guarded"
+    says which way is which — so it is written here, not read from the glossary.
+    """
 
     key: str
     label: str
@@ -47,8 +82,15 @@ class Threshold:
     """The count a view's headline rate is computed from."""
 
     key: str
-    label: str
+    #: What the count is in a sentence, lower case: "guarded shots". The card
+    #: says "Only 12 guarded shots all season", which no column name fits.
+    events: str
     default: int
+
+    @property
+    def label(self) -> str:
+        """The count's name, for the control that sets a minimum on it."""
+        return glossary.name(self.key)
 
 
 @dataclass(frozen=True)
@@ -100,6 +142,24 @@ class Segment:
 
 
 @dataclass(frozen=True)
+class Facet:
+    """One extra pair of figures: how his events split, and what each split returns.
+
+    Same shape as the pair every card already carries, but self-contained, so a
+    lens can add a second reading without the card growing a special case. Its
+    slices keep their own minimums — they are counted on a different denominator
+    from the one the view's panel gates.
+    """
+
+    title: str
+    caption: str
+    breakdown: tuple[Segment, ...]
+    comparison: tuple[Segment, ...]
+    comparison_fmt: str = DEC2
+    comparison_ceiling: float = 1.5
+
+
+@dataclass(frozen=True)
 class Profile:
     """The two figures every player card carries, whatever the page.
 
@@ -115,6 +175,13 @@ class Profile:
     comparison_caption: str
     comparison: tuple[Segment, ...]
     comparison_fmt: str = PCT1
+    #: Whether the slices are places on the floor, so the two figures collapse onto
+    #: one plan of it. Only the pick spots are: the shot zones already have a chart
+    #: of their own, drawn from the NBA columns rather than these.
+    on_court: bool = False
+    #: What the defence did about it. Only the pick lenses have one — a shooter
+    #: faces no coverage.
+    coverage: Facet | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +197,26 @@ class Lens:
     dataset: str = schema.DATASET_SHOTS
     #: What the views inside this lens are, in the reader's words.
     view_label: str = "View"
+    #: A column of this lens whose glossary name opens with the split the lens is,
+    #: e.g. `handler_total_picks` → `Ball Handler - Picks`. Set it and every header
+    #: on this board drops that opening. Read from the dictionary rather than typed,
+    #: so the two cannot fall out of step.
+    prefix_from: str = ""
+
+    @property
+    def prefix(self) -> str:
+        """What this lens states itself, and therefore takes off its own headers.
+
+        `Ball Handler - Points Per Pick` in a table sitting under a control that
+        says **Ball handler** spends fourteen characters saying it again — seven
+        columns of that and the reader is scrolling sideways to read his own board.
+        The shortlist keeps the full names, because both roles are listed there and
+        the prefix is the only thing telling two identical metrics apart.
+        """
+        if not self.prefix_from:
+            return ""
+        head, separator, _ = glossary.name(self.prefix_from).partition(" - ")
+        return head + separator
 
 
 #: Every displayed rate, mapped to the count it is computed from. The minimum a

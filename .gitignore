@@ -1,0 +1,54 @@
+# The deliverable is source code, requirements.txt and README.md — nothing else.
+# Everything is excluded by default and the deliverable is let back in below, so a
+# file added later is out until somebody says otherwise, rather than in until
+# somebody notices.
+
+*
+
+# Git has to be allowed into a directory before anything inside it can be let back
+# in: a file under an excluded directory cannot be re-included.
+!*/
+
+# …except these, which are never descended into whatever they hold. The leading
+# slash anchors them to the repository root: written bare, `logs/` would also
+# swallow any folder of that name under `src/`.
+/logs/
+/.venv/
+/venv/
+/env/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.idea/
+.vscode/
+.DS_Store
+
+# --- the deliverable ------------------------------------------------------------
+!.gitignore
+!README.md
+!requirements.txt
+!app.py
+
+# Source: the pages, the modules behind them, and the tests over the core.
+!**/*.py
+
+# The two files the source cannot start without: the sidebar logo `app.py` loads,
+# and the theme Streamlit reads before the first line of the app runs.
+!assets/*.svg
+!.streamlit/config.toml
+
+# The three season CSVs. Not source, but the brief asks for `pip install` then
+# `streamlit run app.py` to work on a fresh clone, and they are the app's only
+# source of data — a repository that cannot start is not a deliverable. Read-only:
+# nothing in the app ever writes here, so nothing new appears in this folder.
+!data/*.csv
+
+# --- deliberately out -----------------------------------------------------------
+# An empty leftover at the root, kept out of the submission.
+/main.py
+# Working notes and the French reading copy of the README — neither is the deliverable.
+CLAUDE.md
+README.fr.md
+# The brief itself.
+*.docx

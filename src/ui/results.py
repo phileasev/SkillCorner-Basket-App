@@ -1,52 +1,23 @@
-"""Rendering the shortlist: the panel of minimums, and the table itself."""
+"""Rendering the shortlist table.
+
+There is no panel of minimums here, unlike the boards. Every bar on this page is a
+criterion the reader wrote, and the sample every number rests on is the scope bar
+at the top of the page — the same one the boards answer to.
+"""
 
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from src.core import shortlist
-from src.data import glossary
-from src.ui import columns
+from src.ui import columns, tables
 from src.ui import format as fmt
 from src.ui import theme
 from src.ui.columns import PERCENTILE, PLAYER
 
 
-def minimums(frame: pd.DataFrame, counts: tuple[str, ...]) -> dict[str, int]:
-    """One minimum per count the table rests on, all defaulted and all movable.
-
-    The boards gate one metric at a time because a board is about one metric. The
-    shortlist shows everything at once, so it gates the counts the boards
-    themselves gate on, each defaulted to the same value they use.
-    """
-    chosen: dict[str, int] = {}
-    slots = st.columns(3)
-
-    for index, denominator in enumerate(counts):
-        if denominator not in frame.columns:
-            continue
-        highest = int(frame[denominator].fillna(0).max())
-        if highest <= 0:
-            continue
-        with slots[index % 3]:
-            chosen[denominator] = int(
-                st.slider(
-                    columns.count_name(denominator),
-                    min_value=0,
-                    max_value=highest,
-                    value=min(shortlist.default_minimum(denominator), highest),
-                    step=1,
-                    key=f"floor_{denominator}",
-                    help=glossary.definition(denominator) or None,
-                )
-            )
-    return chosen
-
-
 def render(
     frame: pd.DataFrame,
-    floors: dict[str, int],
     opened: tuple[str, ...],
     *,
     key: str,
@@ -55,7 +26,7 @@ def render(
     league: pd.DataFrame | None = None,
 ) -> None:
     """Draw the shortlist."""
-    display, formats = columns.build(frame, floors, as_percentiles, league)
+    display, formats = columns.build(frame, as_percentiles, league)
     palette = theme.palette()
 
     formatters = {
@@ -72,8 +43,15 @@ def render(
             return [f"background-color: {palette.selected}; font-weight: 600"] * len(row)
         return [""] * len(row)
 
+    styler = tables.tint_percentiles(
+        display.style.format(formatters, na_rep=fmt.BLANK), display, formats, palette
+    ).apply(row_style, axis=1)
+
+    if as_percentiles:
+        tables.percentile_key()
+
     st.dataframe(
-        display.style.format(formatters, na_rep=fmt.BLANK).apply(row_style, axis=1),
+        styler,
         width="stretch",
         hide_index=True,
         row_height=32,

@@ -17,32 +17,32 @@ st.caption(
     "the two files say about him."
 )
 
-players = loader.load_all_profiles()
+everyone = loader.load_all_profiles()
+
+# The same scope bar the boards carry, and the same answers: it is one working
+# dataset for the whole app, so a reader who narrowed the league on a board finds
+# it narrowed here. The criteria below sit on top of it — the bar says who counts
+# as a league player, a criterion says which of them he is looking for.
+with st.container(border=True):
+    scope = filters.scope_row(everyone, everyone)
+
+pool = everyone.loc[thresholds.league_mask(everyone, scope)]
+players = thresholds.apply_population(everyone, scope)
 
 with st.container(border=True):
-    scope = filters.scope_row(players)
     with st.expander("Criteria", expanded=True):
         st.caption(
-            "Every bar carries the events it rests on: a percentage on five shots "
-            "clears nothing here."
+            "Each bar is the value itself — nothing is required behind it that is not "
+            "written above. Percentiles are read against the league in the bar."
         )
-        built = criteria.builder(players)
+        built = criteria.builder(pool)
 
-    with st.expander("Minimum shots behind each number", expanded=False):
-        st.caption(
-            "A value resting on fewer events than this is left blank rather than "
-            "printed. The player stays on the list; only the number he cannot "
-            "support disappears."
-        )
-        floors = results.minimums(players, columns.denominators())
-
-population = thresholds.apply_population(players, scope)
-matched = shortlist.apply(population, built)
+matched = shortlist.apply(players, built)
 
 st.caption(criteria.summary(built))
 
 if matched.empty:
-    st.info("No player clears every bar. Loosen one of them, or lower the events it rests on.")
+    st.info("No player clears every bar. Loosen one of them, or widen the scope bar above.")
     st.stop()
 
 opened = columns.opening_columns(built)
@@ -55,25 +55,17 @@ selection.sync(
 )
 chosen = selection.current()
 
-# The profile sits above the list: `st.dataframe` cannot open a row in place, so
-# rather than push the reader down the page it opens where he is already looking.
-with st.container(border=True):
-    profile = matched[matched[schema.PLAYER_NAME] == chosen] if chosen else matched.iloc[:0]
-    if profile.empty:
-        detail.empty_state(len(matched))
-    else:
-        detail.block(profile.iloc[0], players)
-
 with st.container(border=True):
     header, mode, export = st.columns([2.6, 1.2, 1], vertical_alignment="center")
     with header:
         st.caption(
             f"**{len(matched)}** players match · click any line to open his profile "
-            "above, or use the table's column menu to bring back any other metric."
+            "below. The table's own toolbar searches for a name and brings back any "
+            "metric left off screen."
         )
     with mode:
         as_percentiles = filters.value_mode(built)
-    shown = columns.build(matched, floors)[0]
+    shown = columns.build(matched)[0]
     with export:
         st.download_button(
             "Download CSV",
@@ -85,7 +77,17 @@ with st.container(border=True):
         )
 
     results.render(
-        matched, floors, opened, key=table_key, selected=chosen,
+        matched, opened, key=table_key, selected=chosen,
         as_percentiles=as_percentiles,
-        league=players,
+        league=pool,
     )
+
+# The profile opens under the list, where a row would have unfolded if the grid
+# could unfold one: `st.dataframe` is a canvas with no detail row, so the panel
+# stands directly beneath instead. It carries its own fold, which is how it shuts.
+profile = matched[matched[schema.PLAYER_NAME] == chosen] if chosen else matched.iloc[:0]
+if profile.empty:
+    with st.container(border=True):
+        detail.empty_state(len(matched), len(pool))
+else:
+    detail.block(profile.iloc[0], pool)

@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 from pandas.io.formats.style import Styler
 
-from src.core import metrics, ranking, thresholds
+from src.core import catalogue, metrics, ranking, thresholds
 from src.core.metrics import View
 from src.core.ranking import ELIGIBLE
 from src.data import glossary, schema
@@ -21,7 +21,9 @@ from src.ui import theme
 
 PLAYER_LABEL: str = "Player"
 TEAM_LABEL: str = "Team"
-GAMES_LABEL: str = "Games"
+#: Named the way the glossary names it, since the shortlist filters on it under
+#: that name. Player and team are identity, and are named nowhere else.
+GAMES_LABEL: str = glossary.name(schema.GAMES_PLAYED)
 
 PERCENTILE: str = "percentile"
 
@@ -31,13 +33,15 @@ HEADER_HEIGHT: int = 42
 VISIBLE_ROWS: int = 18
 
 
-def sample_label(column: str) -> str:
-    """Short header for a count column, taken from the glossary display name."""
-    info = glossary.lookup(column)
-    if info is None or not info.display_name:
-        return "Shots"
-    label = info.display_name.replace(" - ", " ").replace("Attempts", "shots")
-    return label[:1].upper() + label[1:]
+def sample_label(column: str, view: View | None = None) -> str:
+    """Header for a count column: the name the data dictionary gives it.
+
+    Minus what the board on screen already says: a pick-and-roll table has the
+    role in its lens selector, so repeating it seven times only pushes the last
+    columns off the right edge.
+    """
+    name = glossary.name(column)
+    return catalogue.short(view, name) if view is not None else name
 
 
 def layout(view: View) -> list[tuple[str, str]]:
@@ -52,10 +56,10 @@ def layout(view: View) -> list[tuple[str, str]]:
     columns: list[tuple[str, str]] = []
 
     for column in view.columns:
-        columns.append((column.label, column.key))
+        columns.append((catalogue.short(view, column.label), column.key))
         if column.sample is not None and column.sample not in shown:
             shown.add(column.sample)
-            columns.append((sample_label(column.sample), column.sample))
+            columns.append((sample_label(column.sample, view), column.sample))
 
     return columns
 
@@ -83,8 +87,14 @@ def build(
 
     display[PLAYER_LABEL] = frame[schema.PLAYER_NAME]
     display[TEAM_LABEL] = frame[schema.TEAM_NAME]
-    display[GAMES_LABEL] = frame[schema.GAMES_PLAYED]
-    formats[GAMES_LABEL] = metrics.INT
+
+    games_placed = ranking.percentile_of(schema.GAMES_PLAYED)
+    if as_percentiles and games_placed in frame.columns:
+        display[GAMES_LABEL] = frame[games_placed]
+        formats[GAMES_LABEL] = PERCENTILE
+    else:
+        display[GAMES_LABEL] = frame[schema.GAMES_PLAYED]
+        formats[GAMES_LABEL] = metrics.INT
 
     blanked = {
         column.key: column
@@ -94,14 +104,14 @@ def build(
     formats_by_key = {column.key: column.fmt for column in view.columns}
 
     for label, key in layout(view):
-        # A count stays a count: the sample size behind a rate is the reader's
-        # guard against noise, and replacing it with a standing removes exactly
-        # the information the minimum exists to expose.
-        is_count = formats_by_key.get(key, metrics.INT) == metrics.INT
-        percentile_key = ranking.percentile_of(key)
-        use_percentile = as_percentiles and not is_count and percentile_key in frame.columns
+        # Counts are placed too. A number of shots is a fact, but where that fact
+        # sits in the league is another one, and a reader who has switched the whole
+        # table to standings did not ask for two readings at once. Switching back
+        # is one click, and the values are what the table opens on.
+        placed = ranking.percentile_of(key)
+        use_percentile = as_percentiles and placed in frame.columns
 
-        values = frame[percentile_key] if use_percentile else frame[key]
+        values = frame[placed] if use_percentile else frame[key]
         column = blanked.get(key)
         if column is not None:
             values = values.where(thresholds.sample_mask(frame, column.sample, column.min_sample))
@@ -150,6 +160,11 @@ def style(
             subset=[sorted_label],
         )
 
+    # Painted after the sorted column and before the loaded player: a wash that
+    # carries a value outranks a hint about the order, and the man on screen
+    # outranks both.
+    styler = tint_percentiles(styler, display, formats, palette)
+
     if selected is not None and (display[PLAYER_LABEL] == selected).any():
         picked = display.index[display[PLAYER_LABEL] == selected]
         styler = styler.apply(
@@ -158,6 +173,59 @@ def style(
             subset=(picked, display.columns),
         )
     return styler
+
+
+def tint_percentiles(
+    styler: Styler, display: pd.DataFrame, formats: dict[str, str], palette: theme.Palette
+) -> Styler:
+    """Wash every percentile column blue, deeper the higher the standing.
+
+    A table of a hundred numbers between 0 and 100 is a wall a reader scans line by
+    line. The same table shaded is read at a glance — where the deep cells cluster
+    is what a player is good at — and the number is still printed underneath, so
+    nothing is replaced, only sorted for the eye.
+    """
+    tinted = [label for label, kind in formats.items()
+              if kind == PERCENTILE and label in display.columns]
+    if not tinted:
+        return styler
+
+    def wash(column: pd.Series) -> list[str]:
+        return [
+            "" if pd.isna(value) else f"background-color: {theme.percentile_tint(value, palette.accent)}"
+            for value in column
+        ]
+
+    return styler.apply(wash, axis=0, subset=tinted)
+
+
+def percentile_key() -> None:
+    """The scale the wash means, as a strip under the table it explains.
+
+    Colour that is not named is decoration. Five steps are enough to say "deeper is
+    higher" without pretending the wash is readable to the percentile.
+    """
+    palette = theme.palette()
+    steps = (0, 25, 50, 75, 100)
+    swatches = "".join(
+        f'<span style="display:inline-block;width:34px;height:12px;'
+        f'background:{theme.percentile_tint(step / 100, palette.accent)};'
+        f'border:1px solid {theme.GRID}"></span>'
+        for step in steps
+    )
+    labels = "".join(
+        f'<span style="display:inline-block;width:36px;text-align:center">{step}</span>'
+        for step in steps
+    )
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 6px 0;'
+        f'font-size:0.78rem;color:{palette.ink_soft}">'
+        "<span>Percentile</span>"
+        f'<span style="display:inline-flex;gap:2px">{swatches}</span>'
+        f'<span style="display:inline-flex;gap:2px;margin-left:-3px">{labels}</span>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def column_config(view: View, sorted_label: str | None, marker: str) -> dict[str, object]:

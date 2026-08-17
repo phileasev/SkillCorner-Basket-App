@@ -63,9 +63,10 @@ def derive_shot_features(frame: pd.DataFrame) -> pd.DataFrame:
 def derive_pick_features(frame: pd.DataFrame) -> pd.DataFrame:
     """Add the derived pick columns the views need.
 
-    The file already carries almost everything as a rate. The one thing it does
-    not is how often a role's picks end without a shot and without a pass, which
-    is what separates a handler who resolves the action from one who kills it.
+    The file already carries almost everything as a rate. Two things it does not:
+    how many screens a role runs per game, and what share of them the defence plays
+    each way — there is a share per spot on the floor but none per coverage, though
+    both counts are there to divide.
 
     Args:
         frame: the raw pick-and-roll frame.
@@ -80,13 +81,36 @@ def derive_pick_features(frame: pd.DataFrame) -> pd.DataFrame:
         out[schema.pick_column(role, "picks_per_game")] = safe_ratio(
             picks, out[schema.GAMES_PLAYED]
         )
+        for coverage in schema.coverages_for(role):
+            out[schema.coverage_share(role, coverage.suffix)] = safe_ratio(
+                out[schema.picks_vs(role, coverage.suffix)], picks
+            )
 
     return out
 
 
 def segment_medians(frame: pd.DataFrame, segments: tuple) -> dict[str, float | None]:
-    """Median value per profile segment, keyed by the segment's value column."""
-    return {segment.value: league_median(frame, segment.value) for segment in segments}
+    """Median value per profile segment, keyed by the segment's value column.
+
+    Each median is taken among the players who clear that segment's own count, not
+    across everybody. A player with two step-up screens who scored on neither
+    carries a real 0.00, and there are enough of them that the whole-file median of
+    `screener_ppp_at_stepUp` is 0.09 against 0.32 among the players with 25 picks
+    there — so a measured player read against the first line looked outstanding for
+    being ordinary. The same rule the app applies to percentiles — measure on the
+    population that was measured — applied to the reference line.
+
+    Note that a player with *no* picks at a spot carries NaN rather than 0 in the
+    source file, and `league_median` drops those; the drag comes from thin samples
+    that did happen, not from absent ones.
+    """
+    medians: dict[str, float | None] = {}
+    for segment in segments:
+        pool = frame
+        if segment.min_count > 0 and segment.count in frame.columns:
+            pool = frame[frame[segment.count].fillna(0) >= segment.min_count]
+        medians[segment.value] = league_median(pool, segment.value)
+    return medians
 
 
 def league_median(frame: pd.DataFrame, column: str) -> float | None:

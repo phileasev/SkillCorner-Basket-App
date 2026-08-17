@@ -9,6 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.core import catalogue
 from src.core.metrics import Segment, View
 from src.core.ranking import ELIGIBLE
 from src.data import schema
@@ -48,7 +49,7 @@ def _hover_lines(rows: pd.DataFrame, view: View) -> list[str]:
         f" · {int(row[schema.GAMES_PLAYED])} games<br>"
         f"{view.x.label}: {fmt.value(view.x.fmt, row[view.x.key])}<br>"
         f"{view.y.label}: {fmt.value(view.y.fmt, row[view.y.key])}<br>"
-        f"{view.threshold.label}: {fmt.count(row[view.threshold.key])}"
+        f"{catalogue.short(view, view.threshold.label)}: {fmt.count(row[view.threshold.key])}"
         for _, row in rows.iterrows()
     ]
 
@@ -179,6 +180,7 @@ def comparison_bars(
     medians: dict[str, float | None],
     value_fmt: str,
     ceiling: float,
+    ramp: bool = False,
 ) -> go.Figure:
     """One player's value per segment, against the league median for each.
 
@@ -188,18 +190,23 @@ def comparison_bars(
         medians: league median per segment value column.
         value_fmt: how to print each value.
         ceiling: the top of the scale every bar is read against.
+        ramp: colour each bar its own shade of the breakdown ramp instead of the
+            accent. Used where a hundred-percent bar sits directly above with the
+            same slices in the same order — the shades then key the two figures to
+            each other, and the legend that would have done it can go.
     """
     palette = theme.palette()
     figure = go.Figure()
 
     labels, values, colours, texts = [], [], [], []
-    for segment in segments:
+    for index, segment in enumerate(segments):
         events = row.get(segment.count)
         enough = pd.notna(events) and events >= segment.min_count
         value = row.get(segment.value)
+        shade = palette.zones[index % len(palette.zones)] if ramp else palette.accent
         labels.append(segment.label)
         values.append(0.0 if not enough or pd.isna(value) else float(value))
-        colours.append(palette.accent if enough else palette.muted)
+        colours.append(shade if enough else palette.muted)
         texts.append(fmt.value(value_fmt, value) if enough else fmt.BLANK)
 
     # A full-width track behind every bar, so each one is read against the same
@@ -240,7 +247,9 @@ def comparison_bars(
                 line={"color": palette.rule, "width": 2},
             )
 
-    figure.update_layout(**_base_layout(palette, 190), barmode="overlay")
+    figure.update_layout(
+        **_base_layout(palette, 40 + 32 * len(segments)), barmode="overlay"
+    )
     figure.update_xaxes(visible=False, range=[0, ceiling], fixedrange=True)
     figure.update_yaxes(
         autorange="reversed",

@@ -61,11 +61,20 @@ def load_shot_profiles() -> pd.DataFrame:
 def load_pick_profiles() -> pd.DataFrame:
     """Return one row per player of the pick-and-roll file, extras derived.
 
-    The picks file stands on its own here: the lens already says which role is
-    being looked at, so nothing from the shooting file is needed to read it.
+    The shot total comes along even though no pick view displays it: the scope bar
+    at the top of every page is one control over one working dataset, and it asks
+    for shots taken as well as games played. A page that could not answer that
+    question would be a page where the bar quietly meant something else.
+
+    The four players who appear only in the picks file therefore carry no shot
+    total, and fall outside any scope asking for one — which is correct: the
+    shooting file holds no event for them at all.
     """
+    picks = load_picks()
+    volume = load_shots()[[schema.PLAYER_ID, schema.ATTEMPTS]]
+    merged = picks.merge(volume, on=schema.PLAYER_ID, how="left")
     return aggregate.derive_pick_features(
-        load_picks().drop(columns=list(schema.REDUNDANT_IDENTIFIERS), errors="ignore")
+        merged.drop(columns=list(schema.REDUNDANT_IDENTIFIERS), errors="ignore")
     )
 
 

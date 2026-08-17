@@ -1,9 +1,11 @@
 """Building a shortlist: stackable criteria, and the profile behind each player.
 
-A criterion is two conditions, never one. "Shoots 40% from three" is worthless
-without "on enough threes to mean it", so every criterion carries the count its
-metric was computed from and filters on both. The reader sets the bar; the count
-requirement comes from `DENOMINATORS` and is his to raise.
+**A criterion is one condition: the bar the reader typed.** It used to be two — the
+value, and a number of events silently required behind it — which meant asking for
+40% from three quietly also asked for forty attempts, and a reader who had not read
+the source could not tell why a name was missing. The sample requirement now lives
+where he can see and move it: the scope bar at the top of every page, which asks
+for games played and shots taken and says how many players it leaves.
 """
 
 from __future__ import annotations
@@ -14,10 +16,23 @@ from functools import cache
 import pandas as pd
 
 from src.core import catalogue, metrics
-from src.data import schema
+from src.data import glossary, schema
 
-#: Events required behind a metric whose denominator no view happens to gate on.
-FALLBACK_MINIMUM: int = 25
+#: Where the metrics that belong to no lens are filed.
+GENERAL_GROUP: str = "Season totals"
+
+#: Season totals, and how much of the season he was there for. A board prints
+#: them for context — total three-point attempts sit on the contested board — but
+#: they answer none of the questions a board asks: how many shots a player took is
+#: a fact about his volume, of the same nature as his games played, not about how
+#: far out he shoots or how closely he is guarded. They are claimed before any
+#: lens can, so they group together in the selector.
+_SEASON_TOTALS: tuple[str, ...] = (
+    schema.GAMES_PLAYED,
+    schema.ATTEMPTS,
+    schema.TWO_ATTEMPTS,
+    schema.THREE_ATTEMPTS,
+)
 
 
 @dataclass(frozen=True)
@@ -41,32 +56,42 @@ class Filterable:
 
     @property
     def title(self) -> str:
-        """How the metric reads in the selector."""
-        return f"{self.group} · {self.label}"
+        """How the metric reads in the selector.
+
+        The glossary name already says whose number it is — `Ball Handler -
+        Points Per Pick`, `Three-Point Zone - Attempt Share` — so the lens is not
+        repeated in front of it. It only sorts the list.
+        """
+        return self.label
 
 
 @dataclass(frozen=True)
 class Criterion:
-    """One bar a player has to clear, and the sample it has to clear it on."""
+    """One bar a player has to clear. Nothing else — what the reader typed."""
 
     metric: str
     at_least: bool
     value: float
-    minimum: int
 
 
-def default_minimum(denominator: str | None) -> int:
-    """Events to require behind a metric, taken from the view that gates on it.
+@cache
+def season_totals() -> tuple[Filterable, ...]:
+    """The counts that describe the season rather than a way of playing.
 
-    Reusing a view's own threshold keeps one answer to "how many is enough" across
-    the whole app instead of inventing a second one here.
+    No sample requirement applies to any of them: a total is a total, and the
+    reader who asks for four hundred shots has already said how many he wants.
     """
-    if denominator is None:
-        return 0
-    for view in catalogue.all_views():
-        if view.threshold.key == denominator:
-            return view.threshold.default
-    return FALLBACK_MINIMUM
+    return tuple(
+        Filterable(
+            key=key,
+            label=glossary.name(key),
+            group=GENERAL_GROUP,
+            fmt=metrics.INT,
+            denominator=None,
+            variants=(("All", key),),
+        )
+        for key in _SEASON_TOTALS
+    )
 
 
 @cache
@@ -74,21 +99,21 @@ def describe(key: str) -> Filterable:
     """What one column is, wherever it is displayed.
 
     Used to name a criterion after it has been built, when only the column is
-    known. The split is folded into the label so a saved criterion still says
-    which coverage it was about.
+    known. The name needs no help to say which split it came from: the glossary
+    writes it in — `Ball Handler - Points Per Pick (vs Ice)`.
     """
+    for total in season_totals():
+        if total.key == key:
+            return total
+
     for lens in catalogue.LENSES:
-        overall = lens.views[0]
         for view in lens.views:
             for column in view.columns:
                 if column.key != key:
                     continue
-                label = (
-                    column.label if view is overall else f"{column.label} ({view.label})"
-                )
                 return Filterable(
                     key=key,
-                    label=label,
+                    label=column.label,
                     group=lens.label,
                     fmt=column.fmt,
                     denominator=metrics.DENOMINATORS.get(key),
@@ -101,16 +126,17 @@ def options() -> tuple[Filterable, ...]:
     """Every metric the app displays anywhere, one entry per metric.
 
     Built from the view catalogue rather than listed again, so a metric added to a
-    board becomes searchable here without a second edit. Two foldings apply:
+    board becomes searchable here without a second edit. Three foldings apply:
 
-    * columns sharing a label within a lens are the same metric on different
-      splits, and become one entry carrying them as variants;
-    * a column belongs to the first lens that displays it. Total three-point
-      attempts appear on the contested board for context, but they are a fact
-      about how far out a player shoots, not about how closely he is guarded.
+    * the season totals come first and stand on their own (`_SEASON_TOTALS`);
+    * columns whose glossary names differ only by a coverage — `Ball Handler -
+      Points Per Pick` and its five `(vs …)` siblings — are one metric asked
+      several ways, and become one entry carrying them as variants;
+    * a column belongs to the first lens that displays it. The share of shots at
+      the rim is printed on three boards, and stays a fact about distance.
     """
-    built: list[Filterable] = []
-    claimed: set[str] = set()
+    built: list[Filterable] = list(season_totals())
+    claimed: set[str] = {option.key for option in built}
 
     for lens in catalogue.LENSES:
         overall = lens.views[0]
@@ -121,13 +147,14 @@ def options() -> tuple[Filterable, ...]:
             for column in view.columns:
                 if column.key in claimed:
                     continue
+                family = glossary.family(column.key)
                 split = "All" if view is overall else view.label
-                grouped.setdefault(column.label, []).append((split, column.key))
+                grouped.setdefault(family, []).append((split, column.key))
                 detail.setdefault(
-                    column.label,
+                    family,
                     Filterable(
                         key=column.key,
-                        label=column.label,
+                        label=family,
                         group=lens.label,
                         fmt=column.fmt,
                         denominator=metrics.DENOMINATORS.get(column.key),
@@ -148,14 +175,17 @@ def options() -> tuple[Filterable, ...]:
             )
             claimed.update(column for _, column in variants)
             base = detail[label]
+            single = len(variants) == 1
             built.append(
                 Filterable(
                     key=variants[0][1],
-                    label=base.label,
+                    # With one variant there is no coverage to choose beside the
+                    # name, so the name says which one it is on its own.
+                    label=glossary.name(variants[0][1]) if single else base.label,
                     group=base.group,
                     fmt=base.fmt,
                     denominator=base.denominator,
-                    split_label=base.split_label if len(variants) > 1 else "",
+                    split_label="" if single else base.split_label,
                     variants=variants,
                 )
             )
@@ -172,15 +202,15 @@ def option_by_key(key: str) -> Filterable:
 
 
 def mask(frame: pd.DataFrame, criterion: Criterion) -> pd.Series:
-    """Which players clear one criterion, sample requirement included."""
+    """Which players clear one criterion.
+
+    The bar and nothing else. A player with no value at all — no guarded threes, so
+    no percentage on them — is out, because there is nothing to compare; that is a
+    missing number, not a low one.
+    """
     values = frame[criterion.metric]
     kept = values >= criterion.value if criterion.at_least else values <= criterion.value
-    kept &= values.notna()
-
-    denominator = metrics.DENOMINATORS.get(criterion.metric)
-    if denominator is not None and criterion.minimum > 0:
-        kept &= frame[denominator].fillna(0) >= criterion.minimum
-    return kept
+    return kept & values.notna()
 
 
 def apply(frame: pd.DataFrame, criteria: tuple[Criterion, ...]) -> pd.DataFrame:
@@ -191,33 +221,26 @@ def apply(frame: pd.DataFrame, criteria: tuple[Criterion, ...]) -> pd.DataFrame:
     return frame.loc[kept].copy()
 
 
-def pool(frame: pd.DataFrame, metric: str, minimum: int) -> pd.Series:
+def pool(frame: pd.DataFrame, metric: str) -> pd.Series:
     """The players a bar on this metric is measured against.
 
-    The same pool the criterion itself filters on, so the percentile a reader is
-    shown is the percentile among the players he is actually comparing.
+    Everybody in the frame who has the number at all — and the frame handed in is
+    the scope bar's league, which is the one pool every percentile in the app uses.
     """
-    denominator = metrics.DENOMINATORS.get(metric)
-    if denominator is None or minimum <= 0:
-        return frame[metric].notna()
-    return frame[metric].notna() & (frame[denominator].fillna(0) >= minimum)
+    return frame[metric].notna()
 
 
-def value_at_percentile(
-    frame: pd.DataFrame, metric: str, minimum: int, percentile: float
-) -> float | None:
+def value_at_percentile(frame: pd.DataFrame, metric: str, percentile: float) -> float | None:
     """The value sitting at a given percentile of the pool, or None if it is empty."""
-    values = frame.loc[pool(frame, metric, minimum), metric].dropna()
+    values = frame.loc[pool(frame, metric), metric].dropna()
     if values.empty:
         return None
     return float(values.quantile(max(0.0, min(1.0, percentile))))
 
 
-def percentile_of_value(
-    frame: pd.DataFrame, metric: str, minimum: int, value: float
-) -> float | None:
+def percentile_of_value(frame: pd.DataFrame, metric: str, value: float) -> float | None:
     """Where a value sits in the pool, as a 0-1 share of players at or below it."""
-    values = frame.loc[pool(frame, metric, minimum), metric].dropna()
+    values = frame.loc[pool(frame, metric), metric].dropna()
     if values.empty:
         return None
     return float((values <= value).mean())
