@@ -20,7 +20,7 @@ from src.core import (
     shortlist,
     thresholds,
 )
-from src.data import glossary, schema
+from src.data import glossary, schema, usage
 from src.ui import columns, profile_charts, tables, theme
 
 
@@ -359,6 +359,51 @@ def test_a_slider_can_always_return_to_the_bar_it_opened_on() -> None:
         assert (
             default % metrics.MINIMUM_STEP == 0 or default < metrics.MINIMUM_STEP
         ), f"{view.key} opens on {default}, which its slider cannot return to"
+
+
+def test_a_pick_card_says_what_he_did_with_the_ball(
+    frames: dict[str, pd.DataFrame],
+) -> None:
+    """Four headline figures, and between them the whole fate of one screen.
+
+    Take the shot, give it up, create one for a teammate, or lose it — the same
+    four on every pick view, so the card reads the same way whichever coverage is
+    on screen. Points per pick, which says what came of it all, is the sentence
+    above them rather than a fifth box.
+    """
+    for lens in (pick_views.HANDLER, pick_views.SCREENER):
+        frame = frames[lens.dataset]
+        for view in lens.views:
+            coverage = view.threshold.key.partition("_vs_")[2] or None
+            expected = pick_views.ball_columns(lens.key, coverage)
+
+            assert tuple(c.key for c in view.tile_columns) == expected, view.key
+            for key in expected:
+                assert key in frame.columns, f"{view.key}: {key}"
+                assert metrics.DENOMINATORS[key] == view.threshold.key, key
+
+
+def test_a_split_view_repeats_no_whole_season_figure(picks: pd.DataFrame) -> None:
+    """A coverage board has already answered what the defence does about it.
+
+    The card's two profile figures are drawn for the whole season, so under a view
+    restricted to one coverage they would answer a question the reader has just
+    answered — and the file ships no spot column per coverage, so the floor plan
+    could not follow him into the split even if it were wanted.
+    """
+    splits = {view.key for view in catalogue.all_views() if view.is_split}
+
+    assert splits == {
+        f"{role}_{coverage.suffix}"
+        for role in (schema.ROLE_HANDLER_PREFIX, schema.ROLE_SCREENER_PREFIX)
+        for coverage in schema.coverages_for(role)
+    }
+    for view in catalogue.all_views():
+        if catalogue.lens_of(view).dataset == schema.DATASET_SHOTS:
+            assert not view.is_split, f"{view.key}: a shooter faces no coverage"
+    assert not [
+        column for column in picks.columns if "_vs_" in column and "_at_" in column
+    ], "the file crosses coverage with spot after all — the floor plan could follow"
 
 
 def test_the_card_withholds_no_coverage(picks: pd.DataFrame) -> None:
@@ -919,3 +964,119 @@ def test_a_label_on_a_mark_is_read_against_the_mark() -> None:
                 (theme._relative_luminance(tone), theme._relative_luminance(ink)), reverse=True
             )
             assert (lighter + 0.05) / (darker + 0.05) >= 4.5, f"{ink} on {tone}"
+
+
+def test_a_blank_is_never_a_low_number(everyone: pd.DataFrame) -> None:
+    """Missing values sit at the bottom whichever way a column is sorted.
+
+    The grid's own sorting floats every empty cell to the top of an ascending
+    column, which reads as "these players are the worst at this" — a player with no
+    picks against the blitz has not produced the league's worst points per pick on
+    them. Owning the row order is the whole reason column selection is enabled on
+    both tables.
+    """
+    column = schema.pick_column(schema.ROLE_HANDLER_PREFIX, "ppp", coverage="blitz")
+    assert everyone[column].isna().any(), "expected blanks to exist"
+
+    for ascending in (True, False):
+        ordered = ranking.order(everyone, column, ascending=ascending)
+        blanks = ordered[column].isna().to_numpy()
+        first_blank = blanks.argmax()
+        assert blanks[first_blank:].all(), f"ascending={ascending}: a number sits under a blank"
+
+    # And the two-tier sort the boards use holds the same line, under its own tiers.
+    flagged = ranking.flag_eligible(everyone, everyone[column].notna())
+    for ascending in (True, False):
+        ordered = ranking.two_tier_sort(flagged, column, ascending=ascending)
+        assert ordered[column].tail(1).isna().all(), f"ascending={ascending}"
+
+
+# --- the usage journal -------------------------------------------------------
+
+
+def _journal() -> pd.DataFrame:
+    """Two sessions of made-up activity, in the shape `usage.load` returns."""
+    rows = [
+        # One session that arrives, moves nothing, and leaves without opening anybody.
+        ("2026-08-16T10:00:00", "aaa", "Shortlist", "shortlist", None, None, None, 15, 35, None),
+        ("2026-08-16T10:02:00", "aaa", "Shortlist", "shortlist", None, None, None, 15, 35, None),
+        # One that narrows the league, raises a minimum, and opens two players.
+        ("2026-08-17T09:00:00", "bbb", "Shortlist", "shortlist", None, None, None, 25, 35, None),
+        ("2026-08-17T09:05:00", "bbb", "Pick & roll", "handler", "handler_over", 20, 5, 25, 35, "A"),
+        ("2026-08-17T09:20:00", "bbb", "Pick & roll", "handler", "handler_over", 20, 5, 25, 35, "B"),
+    ]
+    frame = pd.DataFrame(
+        rows,
+        columns=[
+            "at", "session", "page", "lens", "view", "minimum", "minimum_default",
+            "games", "attempts", "player",
+        ],
+    ).reindex(columns=list(usage.FIELDS))
+    frame["at"] = pd.to_datetime(frame["at"])
+    return frame
+
+
+def test_the_journal_reads_empty_before_anything_is_recorded(tmp_path, monkeypatch) -> None:
+    """A fresh clone has no log, and the admin page still has to draw."""
+    monkeypatch.setattr(usage, "LOG_FILE", tmp_path / "usage.jsonl")
+    empty = usage.load()
+
+    assert empty.empty
+    assert list(empty.columns) == list(usage.FIELDS), "the columns hold whatever the file says"
+    for reading in (usage.daily_activity, usage.sessions, usage.view_usage,
+                    usage.opened_players, usage.threshold_choices, usage.funnel):
+        assert reading(empty).empty, reading.__name__
+
+
+def test_one_line_per_state_not_per_rerun(tmp_path, monkeypatch) -> None:
+    """Streamlit reruns on every widget touch; the journal must not grow on every one."""
+    monkeypatch.setattr(usage, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(usage, "LOG_FILE", tmp_path / "usage.jsonl")
+    screen = {"session": "aaa", "page": "Shortlist", "games": 15}
+
+    signature = usage.append(screen, None)
+    assert usage.append(screen, signature) == signature, "the same screen writes nothing"
+    usage.append({**screen, "games": 25}, signature)
+
+    assert len(usage.load()) == 2
+
+
+def test_the_journal_keeps_no_name_and_no_search(tmp_path, monkeypatch) -> None:
+    """A session is a random string; what a scout typed is never written down."""
+    monkeypatch.setattr(usage, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(usage, "LOG_FILE", tmp_path / "usage.jsonl")
+    usage.append({"session": "aaa", "searched": True, "name_query": "Jones"}, None)
+
+    line = (tmp_path / "usage.jsonl").read_text(encoding="utf-8")
+    assert "Jones" not in line, "the query itself must never reach the file"
+    assert '"searched": true' in line, "only that there was one"
+
+
+def test_the_journal_answers_the_questions_the_page_asks() -> None:
+    log = _journal()
+
+    assert len(usage.sessions(log)) == 2
+    assert usage.sessions(log)["minutes"].max() == pytest.approx(20.0)
+    assert len(usage.daily_activity(log)) == 2, "two days of activity"
+
+    opened = usage.opened_players(log)
+    assert set(opened["player"]) == {"A", "B"}
+
+    steps = usage.funnel(log).set_index("step")["sessions"]
+    assert steps["Sessions"] == 2
+    assert steps["Narrowed the league or a minimum"] == 1, "only the second session did"
+    assert steps["Opened a player"] == 1
+
+
+def test_the_journal_says_whether_a_default_is_wrong() -> None:
+    """The reading the page exists for: a bar readers always move is a bar to change."""
+    verdicts = usage.threshold_choices(_journal()).set_index("view")
+
+    assert verdicts.loc["handler_over", "opens_on"] == 5
+    assert verdicts.loc["handler_over", "median_chosen"] == 20
+    assert verdicts.loc["handler_over", "moved"] == pytest.approx(1.0)
+    assert "20" in verdicts.loc["handler_over", "verdict"], "it names the number to try"
+
+    scope = usage.scope_choices(_journal()).set_index("control")
+    assert scope.loc["Minimum shots", "moved"] == pytest.approx(0.0), "nobody moved it"
+    assert scope.loc["Minimum games", "moved"] > 0

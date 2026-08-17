@@ -94,6 +94,38 @@ def role_minimum(role: str) -> int:
     """The overall bar for a role."""
     return HANDLER_MINIMUM if role == schema.ROLE_HANDLER_PREFIX else SCREENER_MINIMUM
 
+def ball_columns(role: str, coverage: str | None = None) -> tuple[str, ...]:
+    """The four figures that say what he did with the ball, in reading order.
+
+    A pick is one possession handed to a player, and there are only so many things
+    he can do with it: take the shot, give it up, create one for somebody else, or
+    lose it. Those four are the card's headline figures on every pick view — the
+    same four whichever coverage is on screen, so the card reads the same way
+    throughout and points per pick, which says what came of it all, is the sentence
+    above them rather than a fifth box.
+
+    The second differs by role, because the two jobs differ. A ball handler either
+    keeps the ball or passes out of the action; a screener barely ever passes out of
+    one — the league median is one pick in eighty — so what matters once he does get
+    it is whether he rolled to the rim or popped for three.
+    """
+    given_up = "only_pass_pick_pct" if role == schema.ROLE_HANDLER_PREFIX else "shot_rate_3pt"
+    stems = ("shot_taken_pct", given_up, "assist_opportunity_pct", "turnover_rate")
+    return tuple(schema.pick_column(role, stem, coverage=coverage) for stem in stems)
+
+
+def _ball_table_columns(role: str, coverage: str | None = None) -> tuple[Column, ...]:
+    """The same four as table columns, each gated on the picks it was counted from."""
+    picks = (
+        schema.picks_vs(role, coverage) if coverage else schema.total_picks(role)
+    )
+    return tuple(
+        Column(key, PCT0 if key.endswith(("shot_taken_pct", "shot_rate_3pt")) else PCT1,
+               sample=picks)
+        for key in ball_columns(role, coverage)
+    )
+
+
 def _coverage_facet(role: str) -> Facet:
     """What the defence throws at him, and what he does with each of it.
 
@@ -149,7 +181,7 @@ def _profile(role: str) -> Profile:
 
 def _overall(role: str, key: str, label: str, title: str, description: str,
              quadrants: tuple[str, str], x: Axis, summary: str,
-             extra: tuple[Column, ...], tiles: tuple[str, ...], minimum: int) -> View:
+             extra: tuple[Column, ...], minimum: int) -> View:
     """The view of a role across every pick he was involved in."""
     picks = schema.total_picks(role)
     return View(
@@ -165,10 +197,10 @@ def _overall(role: str, key: str, label: str, title: str, description: str,
             Column(schema.pick_column(role, "ppp"), DEC2, sample=picks, is_rank_basis=True),
             Column(schema.pick_column(role, "success_rate"), PCT1,
                    sample=picks, is_context=True),
+            *_ball_table_columns(role),
             *extra,
-            Column(schema.pick_column(role, "turnover_rate"), PCT1, sample=picks),
         ),
-        tiles=tiles,
+        tiles=ball_columns(role),
         quadrants=quadrants,
         summary=summary,
     )
@@ -179,9 +211,16 @@ def _coverage_view(role: str, coverage: schema.Coverage) -> View:
     picks = schema.picks_vs(role, coverage.suffix)
     ppp = schema.pick_column(role, "ppp", coverage=coverage.suffix)
     score = schema.pick_column(role, "score_rate", coverage=coverage.suffix)
-    turnover = schema.pick_column(role, "turnover_rate", coverage=coverage.suffix)
     three_rate = schema.pick_column(role, "shot_rate_3pt", coverage=coverage.suffix)
     shot_rate = schema.pick_column(role, "shot_taken_pct", coverage=coverage.suffix)
+    # A handler's four already say whether he gave the ball up; whether he pulled
+    # from three when he kept it is the tell against an under, so it is added back.
+    # A screener's four carry it, roll or pop being what he does with the ball.
+    extra = (
+        (Column(three_rate, PCT0, sample=picks),)
+        if role == schema.ROLE_HANDLER_PREFIX
+        else ()
+    )
 
     return View(
         key=f"{role}_{coverage.suffix}",
@@ -209,15 +248,14 @@ def _coverage_view(role: str, coverage: schema.Coverage) -> View:
             Column(picks, INT),
             Column(ppp, DEC2, sample=picks, is_rank_basis=True),
             Column(score, PCT1, sample=picks, is_context=True),
-            Column(shot_rate, PCT0, sample=picks),
-            Column(three_rate, PCT0, sample=picks),
-            Column(turnover, PCT1, sample=picks),
+            *_ball_table_columns(role, coverage.suffix),
+            *extra,
         ),
-        tiles=(ppp, score, three_rate),
+        tiles=ball_columns(role, coverage.suffix),
         quadrants=("Scores it himself", "Plays it out of the screen"),
         summary=(
-            f"Against {coverage.label.lower()} he generates {{{ppp}}} points per pick, "
-            f"finishing {{{shot_rate}}} of them himself."
+            f"Against {coverage.label.lower()} he generates {{{ppp}}} points per pick "
+            f"and scores on {{{score}}} of them himself."
         ),
     )
 
@@ -244,24 +282,19 @@ HANDLER = Lens(
             x=Axis(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "shot_taken_pct"),
                    "Picks he finishes himself", PCT0),
             quadrants=("Scores it himself", "Plays it out of the screen"),
+            # Where his pass goes when he gives it up: the roll man, or somebody
+            # else. The one thing the four headline figures do not say about a
+            # handler, and the question a scout asks about him first.
             extra=(
-                Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "shot_taken_pct"), PCT0,
-                       sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
-                Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "assist_opportunity_rate"),
-                       PCT1, sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
                 Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "pass_to_screener_pct"),
                        PCT0, sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
-            ),
-            tiles=(
-                schema.pick_column(schema.ROLE_HANDLER_PREFIX, "ppp"),
-                schema.pick_column(schema.ROLE_HANDLER_PREFIX, "success_rate"),
-                schema.pick_column(schema.ROLE_HANDLER_PREFIX, "assist_opportunity_rate"),
-                schema.pick_column(schema.ROLE_HANDLER_PREFIX, "turnover_rate"),
+                Column(schema.pick_column(schema.ROLE_HANDLER_PREFIX, "pass_to_other_pct"),
+                       PCT0, sample=schema.total_picks(schema.ROLE_HANDLER_PREFIX)),
             ),
             summary=(
-                "Generates {handler_ppp} points per pick and creates a shot for a teammate "
-                "on {handler_assist_opportunity_rate} of them, "
-                "{handler_pass_to_screener_pct} of his passes going to the screener."
+                "Generates {handler_ppp} points per pick, and {handler_success_rate} of "
+                "his screens end well for the offence. He goes to the screener on "
+                "{handler_pass_to_screener_pct} of them."
             ),
         ),
         *(_coverage_view(schema.ROLE_HANDLER_PREFIX, coverage)
@@ -291,24 +324,19 @@ SCREENER = Lens(
             x=Axis(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "shot_rate_3pt"),
                    "Shots out of the screen taken from three", PCT0),
             quadrants=("Pops and scores", "Rolls and finishes"),
+            # An assist opportunity is a pass that produced a shot; an assist is one
+            # that produced a made shot. Both are shown, because the first is his
+            # doing and the second is partly his teammate's.
             extra=(
-                Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "shot_rate_3pt"), PCT0,
-                       sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
                 Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "assist_rate"), PCT1,
                        sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
                 Column(schema.pick_column(schema.ROLE_SCREENER_PREFIX, "foul_pct"), PCT1,
                        sample=schema.total_picks(schema.ROLE_SCREENER_PREFIX)),
             ),
-            tiles=(
-                schema.pick_column(schema.ROLE_SCREENER_PREFIX, "ppp"),
-                schema.pick_column(schema.ROLE_SCREENER_PREFIX, "success_rate"),
-                schema.pick_column(schema.ROLE_SCREENER_PREFIX, "assist_rate"),
-                schema.pick_column(schema.ROLE_SCREENER_PREFIX, "shot_rate_3pt"),
-            ),
             summary=(
-                "Generates {screener_ppp} points per pick, takes "
-                "{screener_shot_rate_3pt} of his shots out of the screen from three, and "
-                "finds a teammate on {screener_assist_rate} of his picks."
+                "Generates {screener_ppp} points per pick, and {screener_success_rate} of "
+                "his screens end well for the offence. He finds a teammate on "
+                "{screener_assist_rate} of them."
             ),
         ),
         *(_coverage_view(schema.ROLE_SCREENER_PREFIX, coverage)

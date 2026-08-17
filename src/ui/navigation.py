@@ -12,6 +12,7 @@ import streamlit as st
 SHORTLIST: str = "pages/3_shortlist.py"
 SHOT_QUALITY: str = "pages/1_shot_quality.py"
 PICK_AND_ROLL: str = "pages/2_pick_and_roll.py"
+ADMIN: str = "pages/4_admin.py"
 
 
 def board_button(

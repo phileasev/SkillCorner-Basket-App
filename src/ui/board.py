@@ -18,16 +18,22 @@ import streamlit as st
 from src.core import catalogue, ranking, thresholds
 from src.core.metrics import Lens
 from src.data import schema
-from src.ui import charts, filters, panel, selection, sorting, tables
+from src.ui import charts, filters, panel, selection, sorting, tables, tracking
 
 
-def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: str) -> None:
+def render(
+    frames: dict[str, pd.DataFrame],
+    lenses: tuple[Lens, ...],
+    caption: str,
+    page: str = "",
+) -> None:
     """Draw a full board.
 
     Args:
         frames: the loaded population per dataset, keyed the way a lens names it.
         lenses: the lenses this page offers.
         caption: the sentence under the title saying what the page separates.
+        page: what to call this board in the usage journal.
     """
     st.caption(caption)
     lens = filters.lens_picker(lenses)
@@ -83,14 +89,17 @@ def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: s
         shape = f"{view.key}_{len(scored)}_{minimum}_{show_ineligible}"
         return f"table_{shape}_{sort_column}_{ascending}_{generation}_{pinned or ''}"
 
+    opening = view.rank_column.key
     previous = selection.current()
-    stored_key = table_key(*sorting.order_by(view), selection.table_generation(), previous)
+    stored_key = table_key(
+        *sorting.order_by(view.key, opening), selection.table_generation(), previous
+    )
     resorted = sorting.apply_header_click(
-        view, selection.columns_clicked(stored_key), targets, stored_key
+        view.key, selection.columns_clicked(stored_key), targets, stored_key
     )
 
-    sort_column, ascending = sorting.order_by(view)
-    marked_column, _ = sorting.chosen(view)
+    sort_column, ascending = sorting.order_by(view.key, opening)
+    marked_column, _ = sorting.chosen(view.key)
     ordered = ranking.two_tier_sort(scored, sort_column, ascending=ascending)
     visible = ordered if show_ineligible else ordered[ordered[ranking.ELIGIBLE]]
     if visible.empty:
@@ -153,11 +162,10 @@ def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: s
             as_percentiles=as_percentiles,
         )
 
-        if as_percentiles:
-            tables.percentile_key()
-
         note = f" · **{chosen}** is held on the first row while he is loaded." if chosen else ""
-        st.caption(sorting.caption(view, targets) + note)
+        st.caption(
+            sorting.caption(view.key, targets, view.rank_column.label) + note
+        )
 
     with panel_slot:
         match = visible[visible[schema.PLAYER_NAME] == chosen] if chosen else visible.iloc[:0]
@@ -168,3 +176,16 @@ def render(frames: dict[str, pd.DataFrame], lenses: tuple[Lens, ...], caption: s
             # percentiles: a reference line read off the handful of players a team
             # filter leaves standing is not a league median.
             panel.card(match.iloc[0], view, catalogue.lens_of(view), pool, minimum)
+
+    # Noted last, once every choice on the page is known. One line per state, not
+    # per rerun — `usage.append` drops a repeat of the screen already on file.
+    tracking.record(
+        page or lens.key,
+        scope,
+        lens=lens.key,
+        view=view,
+        minimum=minimum,
+        sort=sort_column,
+        percentiles=as_percentiles,
+        player=chosen,
+    )

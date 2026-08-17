@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.core.metrics import View
 from src.data import schema
 
 #: Columns where the reader expects A before Z rather than best first.
@@ -38,12 +37,12 @@ def plain_label(label: str) -> str:
     return label.removesuffix(ARROW_DESCENDING).removesuffix(ARROW_ASCENDING).strip()
 
 
-def _column_store(view: View) -> str:
-    return f"sort_column_{view.key}"
+def _column_store(scope: str) -> str:
+    return f"sort_column_{scope}"
 
 
-def _ascending_store(view: View) -> str:
-    return f"sort_ascending_{view.key}"
+def _ascending_store(scope: str) -> str:
+    return f"sort_ascending_{scope}"
 
 
 def _click_store(table_key: str) -> str:
@@ -52,21 +51,25 @@ def _click_store(table_key: str) -> str:
     return f"sort_last_click_{table_key}"
 
 
-def chosen(view: View) -> tuple[str | None, bool]:
-    """The column the reader picked, or None while he has picked none."""
-    column = st.session_state.get(_column_store(view))
-    ascending = bool(st.session_state.get(_ascending_store(view), False))
+def chosen(scope: str) -> tuple[str | None, bool]:
+    """The column the reader picked, or None while he has picked none.
+
+    `scope` is whatever the table belongs to — a view's key on a board, the word
+    `shortlist` on the shortlist. One table, one remembered order.
+    """
+    column = st.session_state.get(_column_store(scope))
+    ascending = bool(st.session_state.get(_ascending_store(scope), False))
     return (str(column) if column else None), ascending
 
 
-def order_by(view: View) -> tuple[str, bool]:
+def order_by(scope: str, fallback: str) -> tuple[str, bool]:
     """The column the table is actually ordered on, chosen or not.
 
-    Falling back to the view's own metric means the board opens on the ranking it
+    Falling back to the table's own metric means the page opens on the ranking it
     exists to show, without claiming the reader asked for it.
     """
-    column, ascending = chosen(view)
-    return (column, ascending) if column else (view.rank_column.key, False)
+    column, ascending = chosen(scope)
+    return (column, ascending) if column else (fallback, False)
 
 
 def default_direction(column: str) -> bool:
@@ -75,12 +78,12 @@ def default_direction(column: str) -> bool:
 
 
 def apply_header_click(
-    view: View, clicked: list[str], targets: dict[str, str], table_key: str
+    scope: str, clicked: list[str], targets: dict[str, str], table_key: str
 ) -> bool:
     """Update the ordering from a header click, if that click is a new one.
 
     Args:
-        view: the view on screen.
+        scope: what the table belongs to, for remembering its order.
         clicked: header labels the table reports as selected.
         targets: header label to the frame column it orders on.
         table_key: key of the table those labels came from.
@@ -98,9 +101,9 @@ def apply_header_click(
     if column is None:
         return False
 
-    active, ascending = chosen(view)
-    st.session_state[_column_store(view)] = column
-    st.session_state[_ascending_store(view)] = (
+    active, ascending = chosen(scope)
+    st.session_state[_column_store(scope)] = column
+    st.session_state[_ascending_store(scope)] = (
         not ascending if column == active else default_direction(column)
     )
     return True
@@ -113,13 +116,20 @@ def label_of(column: str | None, targets: dict[str, str]) -> str | None:
     return next((label for label, key in targets.items() if key == column), None)
 
 
-def caption(view: View, targets: dict[str, str]) -> str:
-    """One line telling the reader how the table is ordered and how to change it."""
-    column, ascending = chosen(view)
+def caption(scope: str, targets: dict[str, str], opening: str) -> str:
+    """One line telling the reader how the table is ordered and how to change it.
+
+    It always ends on the same promise, because the ordering is ours rather than the
+    grid's: a blank is not a low number, so blanks sit at the bottom either way.
+    """
+    column, ascending = chosen(scope)
+    tail = (
+        "Players with no number for a column stay at the bottom of it, whichever "
+        "way it is sorted."
+    )
     if column is None:
         return (
-            f"Ordered by **{view.rank_column.label}**, the metric this view is about — "
-            "click any column header to sort by it."
+            f"Ordered by **{opening}** — click any column header to sort by it. {tail}"
         )
 
     label = label_of(column, targets) or column
@@ -129,5 +139,5 @@ def caption(view: View, targets: dict[str, str]) -> str:
         order = "lowest first" if ascending else "highest first"
     return (
         f"Sorted by **{label}** {arrow(ascending)}, {order} — "
-        "click any column header to sort by it, click it again to reverse."
+        f"click again to reverse. {tail}"
     )

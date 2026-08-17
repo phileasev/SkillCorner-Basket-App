@@ -113,6 +113,16 @@ class View:
     caveat: str = ""
 
     @property
+    def is_split(self) -> bool:
+        """Whether the view is one slice of a player's events rather than all of them.
+
+        Read off the count the view is gated on, which is the same test the headers
+        use to drop a coverage they already state. A split view answers its own
+        question, so a card under it does not repeat the breakdown of the whole.
+        """
+        return "_vs_" in self.threshold.key
+
+    @property
     def rank_column(self) -> Column:
         """The column ranks are computed on: the one the view is built around."""
         return next(c for c in self.columns if c.is_rank_basis)
@@ -259,9 +269,14 @@ def _pick_denominators() -> dict[str, str]:
         "turnover_rate",
         "success_rate",
         "shot_taken_pct",
+        "only_pass_pick_pct",
         "assist_rate",
-        "assist_opportunity_rate",
+        # `assist_opportunity_pct` rather than `_rate`: the two carry the same
+        # definition and identical values where both exist, but only the `_pct`
+        # form is shipped for a screener and for a coverage split.
+        "assist_opportunity_pct",
         "pass_to_screener_pct",
+        "pass_to_other_pct",
         "shot_rate_2pt",
         "shot_rate_3pt",
         "foul_pct",

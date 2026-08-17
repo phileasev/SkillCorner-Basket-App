@@ -7,9 +7,18 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.core import shortlist, thresholds
+from src.core import ranking, shortlist, thresholds
 from src.data import loader, schema
-from src.ui import columns, criteria, detail, filters, results, selection
+from src.ui import (
+    columns,
+    criteria,
+    detail,
+    filters,
+    results,
+    selection,
+    sorting,
+    tracking,
+)
 
 st.title("Shortlist")
 st.caption(
@@ -46,14 +55,38 @@ if matched.empty:
     st.stop()
 
 opened = columns.opening_columns(built)
-table_key = f"shortlist_{len(matched)}_{len(opened)}_{selection.table_generation()}"
+
+# The order is the app's, not the grid's: a header click arrives as an event, and
+# players with no number for that column stay at the bottom of it either way.
+targets = results.sort_targets(list(opened))
+SCOPE = "shortlist"
+OPENING = schema.PLAYER_NAME
+
+previous = selection.current()
+stored_key = (
+    f"shortlist_{len(matched)}_{len(opened)}_"
+    f"{'_'.join(str(part) for part in sorting.order_by(SCOPE, OPENING))}_"
+    f"{selection.table_generation()}_{previous or ''}"
+)
+sorting.apply_header_click(
+    SCOPE, selection.columns_clicked(stored_key), targets, stored_key
+)
+
+sort_column, ascending = sorting.order_by(SCOPE, OPENING)
+marked_column, _ = sorting.chosen(SCOPE)
+listed = ranking.order(matched, sort_column, ascending=ascending)
 
 selection.sync(
     chart_key="shortlist_no_chart",
-    table_key=table_key,
-    names=matched[schema.PLAYER_NAME].tolist(),
+    table_key=stored_key,
+    names=listed[schema.PLAYER_NAME].tolist(),
 )
 chosen = selection.current()
+table_key = (
+    f"shortlist_{len(matched)}_{len(opened)}_"
+    f"{'_'.join(str(part) for part in sorting.order_by(SCOPE, OPENING))}_"
+    f"{selection.table_generation()}_{chosen or ''}"
+)
 
 with st.container(border=True):
     header, mode, export = st.columns([2.6, 1.2, 1], vertical_alignment="center")
@@ -77,10 +110,13 @@ with st.container(border=True):
         )
 
     results.render(
-        matched, opened, key=table_key, selected=chosen,
+        listed, opened, key=table_key, selected=chosen,
         as_percentiles=as_percentiles,
         league=pool,
+        sorted_label=sorting.label_of(marked_column, targets),
+        marker=sorting.arrow(ascending),
     )
+    st.caption(sorting.caption(SCOPE, targets, columns.PLAYER))
 
 # The profile opens under the list, where a row would have unfolded if the grid
 # could unfold one: `st.dataframe` is a canvas with no detail row, so the panel
@@ -91,3 +127,15 @@ if profile.empty:
         detail.empty_state(len(matched), len(pool))
 else:
     detail.block(profile.iloc[0], pool)
+
+# Noted last, once every choice on the page is known. The criteria themselves are
+# not written down — only that the reader narrowed something — because a bar is a
+# search, and a search is the one thing on this screen worth calling private.
+tracking.record(
+    "Shortlist",
+    scope,
+    lens="shortlist",
+    sort=sort_column,
+    percentiles=as_percentiles,
+    player=chosen,
+)

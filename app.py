@@ -40,6 +40,11 @@ PAGES = [
         title="Pick & roll",
         icon=":material/group_work:",
     ),
+    st.Page(
+        navigation.ADMIN,
+        title="Admin",
+        icon=":material/monitoring:",
+    ),
 ]
 
 st.navigation(PAGES).run()

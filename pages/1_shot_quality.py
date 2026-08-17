@@ -21,4 +21,5 @@ board.render(
         "Every shooter takes a different menu of shots. This board separates what he "
         "takes from how well he takes it."
     ),
+    page="Shot quality",
 )

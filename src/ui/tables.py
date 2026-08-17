@@ -160,11 +160,6 @@ def style(
             subset=[sorted_label],
         )
 
-    # Painted after the sorted column and before the loaded player: a wash that
-    # carries a value outranks a hint about the order, and the man on screen
-    # outranks both.
-    styler = tint_percentiles(styler, display, formats, palette)
-
     if selected is not None and (display[PLAYER_LABEL] == selected).any():
         picked = display.index[display[PLAYER_LABEL] == selected]
         styler = styler.apply(
@@ -173,59 +168,6 @@ def style(
             subset=(picked, display.columns),
         )
     return styler
-
-
-def tint_percentiles(
-    styler: Styler, display: pd.DataFrame, formats: dict[str, str], palette: theme.Palette
-) -> Styler:
-    """Wash every percentile column blue, deeper the higher the standing.
-
-    A table of a hundred numbers between 0 and 100 is a wall a reader scans line by
-    line. The same table shaded is read at a glance — where the deep cells cluster
-    is what a player is good at — and the number is still printed underneath, so
-    nothing is replaced, only sorted for the eye.
-    """
-    tinted = [label for label, kind in formats.items()
-              if kind == PERCENTILE and label in display.columns]
-    if not tinted:
-        return styler
-
-    def wash(column: pd.Series) -> list[str]:
-        return [
-            "" if pd.isna(value) else f"background-color: {theme.percentile_tint(value, palette.accent)}"
-            for value in column
-        ]
-
-    return styler.apply(wash, axis=0, subset=tinted)
-
-
-def percentile_key() -> None:
-    """The scale the wash means, as a strip under the table it explains.
-
-    Colour that is not named is decoration. Five steps are enough to say "deeper is
-    higher" without pretending the wash is readable to the percentile.
-    """
-    palette = theme.palette()
-    steps = (0, 25, 50, 75, 100)
-    swatches = "".join(
-        f'<span style="display:inline-block;width:34px;height:12px;'
-        f'background:{theme.percentile_tint(step / 100, palette.accent)};'
-        f'border:1px solid {theme.GRID}"></span>'
-        for step in steps
-    )
-    labels = "".join(
-        f'<span style="display:inline-block;width:36px;text-align:center">{step}</span>'
-        for step in steps
-    )
-    st.markdown(
-        '<div style="display:flex;align-items:center;gap:10px;margin:2px 0 6px 0;'
-        f'font-size:0.78rem;color:{palette.ink_soft}">'
-        "<span>Percentile</span>"
-        f'<span style="display:inline-flex;gap:2px">{swatches}</span>'
-        f'<span style="display:inline-flex;gap:2px;margin-left:-3px">{labels}</span>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
 
 
 def column_config(view: View, sorted_label: str | None, marker: str) -> dict[str, object]:

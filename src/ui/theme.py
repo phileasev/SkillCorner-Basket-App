@@ -73,29 +73,11 @@ DARK = Palette(
 )
 
 
-#: How strong the wash behind a percentile cell runs, bottom of the league to top.
-#: It stops well short of solid: the number has to stay readable through it, and
-#: the loaded player's row has to stay the strongest mark on the table.
-TINT_FLOOR: float = 0.04
-TINT_CEILING: float = 0.50
-
-
-def _rgb(colour: str) -> tuple[int, int, int]:
-    """The three channels of a `#rrggbb` colour."""
-    return tuple(int(colour[start:start + 2], 16) for start in (1, 3, 5))  # type: ignore[return-value]
-
-
-def percentile_tint(place: float, accent: str) -> str:
-    """The blue behind a percentile: barely there at the bottom, solid at the top.
-
-    One hue, one axis. A red-to-green scale would read as good-to-bad, which is a
-    judgement the app does not make — a high share of guarded shots is not a virtue
-    — whereas depth of one colour reads as more-of-it, which is all a percentile
-    says.
-    """
-    red, green, blue = _rgb(accent)
-    strength = TINT_FLOOR + (TINT_CEILING - TINT_FLOOR) * max(0.0, min(1.0, float(place)))
-    return f"rgba({red},{green},{blue},{strength:.3f})"
+# A per-cell wash behind the percentile columns was tried and dropped. It read
+# well, but a background colour computed for every cell of a hundred-column table
+# is a style rule per cell for the browser to resolve, and the grid became slow
+# enough to feel it. The table stays legible without it; nothing is worth a lag on
+# every scroll.
 
 
 def _relative_luminance(colour: str) -> float:

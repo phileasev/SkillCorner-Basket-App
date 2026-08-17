@@ -24,4 +24,5 @@ board.render(
         "A screen either creates an advantage or it does not. This board separates "
         "how often a player creates one from what he does with it."
     ),
+    page="Pick & roll",
 )

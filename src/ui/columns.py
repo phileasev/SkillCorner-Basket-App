@@ -208,10 +208,26 @@ def _tips() -> dict[str, str]:
     return tips
 
 
-def column_config(display: pd.DataFrame) -> dict[str, object]:
+def column_config(
+    display: pd.DataFrame, sorted_label: str | None = None, marker: str = ""
+) -> dict[str, object]:
     """A definition on every header, including the ones a reader reveals himself."""
     tips = _tips()
     return {
-        header: st.column_config.Column(label=header, help=tips.get(header) or None)
+        header: st.column_config.Column(
+            label=f"{header} {marker}" if header == sorted_label else header,
+            help=tips.get(header) or None,
+        )
         for header in display.columns
     }
+
+
+@cache
+def frame_columns() -> tuple[tuple[str, str], ...]:
+    """`(header, frame column)` for everything the shortlist can be sorted on."""
+    return (
+        (PLAYER, schema.PLAYER_NAME),
+        (TEAM, schema.TEAM_NAME),
+        (GAMES, schema.GAMES_PLAYED),
+        *((header, column) for header, column, _ in catalogue_columns()),
+    )

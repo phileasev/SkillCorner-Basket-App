@@ -65,6 +65,11 @@ def card(
             ),
             icon=":material/info:",
         )
+        # And nothing else. Every figure below this line would be computed on the
+        # sample the reader has just been told is too thin to judge him on, and a
+        # number printed under a warning is still a number somebody reads off the
+        # screen. The message is the whole card until he clears the bar.
+        return
 
     sentence = fmt.summary(view.summary, row)
     if sentence:
@@ -72,7 +77,12 @@ def card(
 
     _headline(row, view)
 
-    if lens.profile is not None:
+    # A split view carries no whole-season breakdown. On a coverage board the
+    # reader has already chosen the coverage, so a figure of what the defence plays
+    # against him answers a question he has answered — and the file ships no spot
+    # column per coverage, so the floor plan under it would be his whole season
+    # sitting under a heading that says otherwise.
+    if lens.profile is not None and not view.is_split:
         _profile(row, lens.profile, population, minimum)
 
 

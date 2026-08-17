@@ -88,6 +88,20 @@ def percentile_series(frame: pd.DataFrame, column: str, eligible: pd.Series) -> 
     return frame.loc[pool, column].rank(pct=True, na_option="keep").reindex(frame.index)
 
 
+def order(frame: pd.DataFrame, column: str, ascending: bool = False) -> pd.DataFrame:
+    """Sort on one column, **missing values last whichever way it runs**.
+
+    A blank is not a low number: it is a number the file does not have, and a player
+    with no guarded threes has not shot the worst percentage on them. Sorting a
+    column upwards and being handed a screen of empty cells is the grid's own
+    default, and it is wrong here — which is why the app owns the row order rather
+    than letting the grid sort.
+    """
+    return frame.sort_values(
+        by=column, ascending=ascending, na_position="last", kind="mergesort"
+    )
+
+
 def two_tier_sort(frame: pd.DataFrame, metric: str, ascending: bool = False) -> pd.DataFrame:
     """Sort eligible players first, then ineligible ones, each group sorted alike.
 
