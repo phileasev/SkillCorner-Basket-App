@@ -530,12 +530,6 @@ Rules the code holds to:
   is the working vocabulary of basketball scouting, and it is printed in ordinal form (*86th
   percentile*). The statistics live in this README.
 
-`pytest -q` runs 74 tests over the core: the denominator map, eligibility, percentiles on the scope
-bar's pool, the two-tier sort and the blanks-last rule, the feet-to-metres conversion, the mid-range
-sum, the glossary naming rules, the notch rule on every default, the coverage shares — measured back
-off the CSVs, so the split bars cannot go stale — the colour ramp the shot chart shares with the
-shot menu, and the usage journal, including that it never writes down a search.
-
 ---
 
 ## 7. How this was built
