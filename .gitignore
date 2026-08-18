@@ -48,6 +48,7 @@ __pycache__/
 # An empty leftover at the root, kept out of the submission.
 /main.py
 # Working notes and the French reading copy of the README — neither is the deliverable.
+CLAUDE.md
 README.fr.md
 # The brief itself.
 *.docx
