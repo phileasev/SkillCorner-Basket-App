@@ -1,54 +1,36 @@
 # Triple Threat
 
-A local Streamlit app for exploring player-level offensive tracking data from the
-**2024-2025 Liga ACB** season, built for a basketball analyst or scout.
+A local Streamlit app to explore player-level offensive tracking data from the
+**2024-2025 Liga ACB** season. It is made for a basketball scout or analyst.
 
-The name is the three ways this data shows a player threatening a defence:
-shooting it, attacking off a screen, and creating for somebody else.
-
-The app is read in that order — **build a list, then explain it**:
-
-| Page | What it is for |
+| Page | What it answers |
 |---|---|
-| **Shortlist** | *Who fits?* Stack the bars a player has to clear, export the list, then open anyone on it and read his whole offensive profile in place. |
-| **Shot Quality Board** | *How hard are his shots, and does he make them?* |
+| **Shortlist** | *Who fits?* Stack the minimums a player has to clear, export the list, then open anyone on it and read his whole profile. |
+| **Shot Quality Board** | *What kind of shots does he take? Are they hard? Does he make them?* |
 | **Pick & Roll Board** | *Does a screen create an advantage for him, and what does he do with it?* |
-| **Admin** | *What is the app actually used for, and are its defaults right?* (§5) |
+| **Admin** | *What users search for: which pages, which players and which views get opened?* (§5) |
 
-A scout arrives with a search, not with a scatter plot, so the shortlist opens the
-app. The two boards go deeper on one question each: they rank the league and explain
-what the axes mean in plain language.
+The shortlist opens the app, because a scout arrives with a search.
 
-**One scope bar runs across all three**, at the top of every page — games played,
-shots taken, team, name, traded — and it holds the same answers wherever the reader
-goes. It is the working dataset: who counts as a league player, and therefore what
-every percentile in the app is measured against. The selected player travels the
-same way, so the three pages read as angles on one profile rather than three
-reports.
+**One scope bar sits at the top of all three pages**: games played, shots taken, team, name,
+traded. It keeps the same answers wherever you go, and it decides who counts as a league
+player, so it is also what every percentile is measured against. The selected player follows
+you too, so the three pages read as three angles on one profile.
+
+**About 95% of the code was written with an AI assistant.** §7 explains it in detail.
 
 ---
 
 ## 1. Setup and run
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows;  source .venv/bin/activate on macOS / Linux
 pip install -r requirements.txt
 streamlit run app.py
 ```
+Python 3.10+
 
-Python 3.10 or later. Four runtime dependencies — `streamlit`, `pandas`, `numpy`,
-`plotly` — plus `pytest`, listed in the same file so one install runs the app and
-its tests.
-
-Nothing else is needed: the three season CSVs ship with the repository, in `data/`,
-and they are the only source the app has — **no API, no database, no credentials,
-no network access at any point**. `data/` is read-only; nothing in the app ever
-writes to it.
-
-```bash
-pytest -q                       # 74 tests over the analytical core
-```
+The three season CSVs ship with the repo, in `data/`, and they are the only source: **no API,
+no database, no credentials, no network**. `data/` is read-only; the app never writes to it.
 
 ---
 
@@ -56,32 +38,20 @@ pytest -q                       # 74 tests over the analytical core
 
 ### Two files, two ways to threaten a defence
 
-The brief ships two datasets, and they are not two halves of one thing — they are
-two independent axes of a player's offence:
+The two datasets are not two halves of one thing. They are two independent axes:
 
-* **`shots_offense`** answers *what kind of shot does he take, and does it go in?*
-  — distance, contest, and who created it.
-* **`picks_offense`** answers *what happens when a screen is set for him or by
-  him?* — the single most-run action in modern basketball, and the one place this
-  data measures something a box score cannot reach.
+* **`shots_offense`** — what kind of shot does he take, and does it go in? Distance, contest,
+  who created it.
+* **`picks_offense`** — what happens when a screen is set for him or by him?
 
-A player can be excellent on one axis and invisible on the other. The app is built
-around that: one board per axis, and a shortlist that crosses them. Nothing forces
-the two into a single composite rating, because a rating would hide exactly the
-gap a scout is looking for.
-
-Of the 827 columns described in the glossary, the app puts roughly 125 on screen.
-The rest are either dead (see §4), redundant with a column already shown, or a
-split so thin that no player clears a defensible minimum on it.
+A player can be excellent on one axis and invisible on the other, so there is one board per
+axis and a shortlist that crosses them.
 
 ### Shooting: efficiency is never FG%
 
-**eFG% and points per shot, never raw field goal percentage.** A player taking 60%
-of his shots from three cannot be compared to a rim finisher on FG%.
-`efg_percentage` weights the extra point of a three; `points_per_shot` is a
-true-shooting-style figure that also carries free throws.
-
-The three shooting lenses:
+**eFG% and PPS (points per shot), never raw FG%.** A player taking 60% of his shots from three
+cannot be compared to a rim finisher on FG%. `efg_percentage` counts the extra point of a
+three; `points_per_shot` also includes free throws.
 
 | Lens | The question | Plotted against | Minimum applies to |
 |---|---|---|---|
@@ -89,121 +59,85 @@ The three shooting lenses:
 | **Shot contestation** | Does he score with a defender on him? | Share of shots guarded vs efficiency on them | `contested_attempts` |
 | **Shot creation** | Does he make his own shot? | Share off the dribble vs efficiency on them | `od_attempts` |
 
-#### Guarded shooting is split by shot type, on purpose
+#### Guarded shooting is split by shot type
 
-Ranking players by contested eFG% puts big men on top, because a contested layup is
-still a good shot while a contested three is not. Correlated against how often a
-player shoots at the rim — each candidate measured on the players who clear **35 of
-its own attempts**, which is the rule §3.1 sets out:
+Ranking on contested eFG% puts big men on top: a contested layup is still a good shot, a
+contested three is not.
 
-| Candidate | Measured on | Correlation with rim attempt rate |
-|---|---|---|
-| `contested_efg_percentage` | 214 players | **+0.23** — favours big men |
-| Contested minus uncontested eFG% | 166 players | **−0.34** — *worse*, and backwards |
-| `contested_three_fg_percentage` | 135 players | **−0.10** — effectively neutral |
-
-The difference between guarded and open efficiency looks like a natural correction
-and is in fact more biased than the raw number, in the opposite direction: a big
-man's open eFG% is so high that his gap is mechanically terrible. It is not used.
-
-What works is comparing like with like, so the lens splits into **All shots /
-Two-pointers / Threes**. The three-point view is the cleanest read on shot-making
-under pressure — it is the same shot for everybody on the floor. The all-shots view
-stays reachable, with the bias stated on screen rather than hidden.
+So the Shot contestation lens splits into three: **All shots / Two-pointers / Threes**. The
+three-point view is the cleanest read on shot-making under pressure, because it is the same
+shot for everyone on the floor. All shots stays available, with the bias written on screen.
 
 ### Pick and roll: one lens per role
 
-Ball handler and screener are two different jobs, and in this data very nearly two
-different populations: of 292 players, only **four** record fifty picks in both
-roles. So the role is a lens, not a filter — and each lens is built for that role's
-own set of coverages, which are **not the same on both sides** (the handler faces
-Over / Under / Switch / Blitz / Ice; the screener faces Show / Soft / Switch /
-Blitz / Ice).
+Ball handler and screener are two different jobs, and here almost two different populations:
+of 292 players, only **four** record fifty picks in both roles. So the role is a lens, not a
+filter. They also face different coverages (handler: Over / Under / Switch / Blitz / Ice;
+screener: Show / Soft / Switch / Blitz / Ice).
 
 | Lens | Plotted against | Minimum applies to |
 |---|---|---|
 | **Ball handler** | Picks he finishes himself vs points generated | `handler_total_picks`, then `handler_picks_vs_<coverage>` |
 | **Screener** | Shots from three out of the screen vs points generated | `screener_total_picks`, then `screener_picks_vs_<coverage>` |
 
-**Points per pick counts the points a teammate scored off the player's pass, not
-just his own basket.** It measures the offence generated per screen, which is the
-right question for a ball handler and the wrong one for a pure shooting comparison
-— `points_per_shot` from the shooting file is not its equivalent, and the two are
-never put side by side. The scorer-only figure exists separately as
-`{role}_points_per_shot_in_pick`.
+**Points per pick counts the points a teammate scored off his pass, not just his own basket.**
+It measures the offence generated per screen. That is the right question for a ball handler
+and the wrong one for comparing scorers, so it is never put next to `points_per_shot` from the
+shooting file. The scorer-only figure is `{role}_points_per_shot_in_pick`.
 
 Four columns carry most of the value of this board:
 
-* **`handler_success_rate`** — the share of screens the tracking judges to have
-  created an advantage, **regardless of whether the shot went in**. It separates
-  execution from shot-making, which a box score cannot.
-* **`handler_pass_to_screener_pct`** — does he actually play with his roll man, or
-  does he use the screen to hunt a kick-out?
-* **`screener_assist_rate`** — passing out of the short roll. A big-man skill that
-  is hard to quantify anywhere else, and this file gives it directly. It is the
-  most original thing in the whole dataset.
-* **`{role}_shot_rate_3pt`** — separates a roller from a popper in one number.
+* **`handler_success_rate`** — the share of screens the tracking judges to have created an
+  advantage, **whether or not the shot went in**.
+* **`handler_pass_to_screener_pct`** — does he play with his roll man, or use the screen to
+  hunt a kick-out?
+* **`screener_assist_rate`** — the screener's pass out of the short roll.
+* **`{role}_shot_rate_3pt`** — roller or popper, in one number.
 
-### The card answers one question: what he did with the ball
+### The card: what he did with the ball
 
-A pick hands a player one possession, and there are only so many things he can do
-with it — take the shot, give it up, create one for somebody else, or lose it.
-Those four are the headline figures on **every** pick view, the same four whichever
-coverage is on screen, so the card reads the same way throughout. Points per pick,
-which says what came of it all, is the sentence above them rather than a fifth box.
+A pick hands a player one possession, and there are four things he can do with it: take the
+shot, give it up, create one for someone else, or lose it. Those four are the headline figures
+on **every** pick view, whichever coverage is on screen, so the card always reads the same way.
 
 | Reading | Ball handler | Screener |
 |---|---|---|
 | He takes the shot | `shot_taken_pct` | `shot_taken_pct` |
-| What he does with it instead | `only_pass_pick_pct` — he passes out | `shot_rate_3pt` — he rolls or he pops |
+| What he does instead | `only_pass_pick_pct` — he passes out | `shot_rate_3pt` — he rolls or he pops |
 | He creates a shot for a teammate | `assist_opportunity_pct` | `assist_opportunity_pct` |
 | He loses it | `turnover_rate` | `turnover_rate` |
 
-The second row differs because the two jobs differ. A ball handler either keeps the
-ball or gives it up; a screener passes out of a screen about **once in eighty
-picks** (league median), so the question that matters once he does get it is whether
-he rolled to the rim or popped for three.
+The second row differs because the jobs differ. A screener passes out of a screen about **once
+in eighty picks** (league median), so what matters once he keeps it is whether he rolled to the
+rim or popped for three.
 
-**A coverage view drops the two whole-season figures under the card.** Reading
-Ball handler → Blitz, a chart of what the defence plays against him answers the
-question the reader has just answered by choosing that view, and a floor plan of
-where his screens are set could not follow him into the split even if it were
-wanted: the file crosses role with coverage and role with spot, but never coverage
-with spot. So on a coverage view the card is the sentence and the four figures, and
-the two breakdowns come back on **Every pick**.
+### What I deliberately did not build
 
-### What was deliberately not built
-
-* **No composite score, no player rating.** Every number on screen is a column of
-  the CSV or a stated division of two of them.
-* **No new "per game" family.** The files already ship rates for almost everything
-  (`{role}_ppp`, `*_attempt_rate`, `*_fg_percentage`), so inventing a parallel set
-  of per-game figures would have doubled the vocabulary without answering a new
-  question, and loaded the pages for nothing. One pair is derived
-  (`{role}_picks_per_game`) and **nothing is ranked or filtered on it**: with no
-  minutes column (§4), a per-game figure divides by games in which a player may have
-  played two minutes or thirty.
-* **No position-based comparison.** The data has no position column (§4).
+* **No composite score, no player rating.** Every number on screen is a CSV column, or a stated
+  division of two of them. I like composite scores, but there was too little time to think one
+  through.
+* **No new "per game" metric.** The files already ship rates for almost everything. One pair is
+  derived (`{role}_picks_per_game`) and **nothing is ranked or filtered on it**: with no minutes
+  column (§4), a per-game number divides by games in which a player may have played two minutes
+  or thirty.
+* **No position-based comparison.** There is no position column (§4).
 
 ---
 
 ## 3. Filtering, thresholds and normalisation
 
-This is where most of the analytical work went, so it is the longest section.
+This is where most of the analytical work went.
 
 ### 3.1 A minimum on games played protects nothing
 
-A player can appear in 34 games and take **11 guarded threes** all season. Showing
-his percentage on those 11 shots is showing noise, and no games filter will stop
-it — he passes every one of them.
+A player can appear in 34 games and take **11 guarded threes** all season. His percentage on
+those 11 shots is noise, and there is nothing worth analysing in it.
 
-So the rule the whole app is built on:
+Hence the rule the whole app is built on:
 
-> **The minimum applies to the count the displayed rate is actually made of, never
-> to games played.**
+> **The minimum applies to the count the displayed rate is made of, never to games played.**
 
-Every displayed rate names its own denominator in `DENOMINATORS`
-(`src/core/metrics.py`):
+Every rate names its own denominator in `DENOMINATORS` (`src/core/metrics.py`):
 
 | Rate | Minimum applies to |
 |---|---|
@@ -213,212 +147,115 @@ Every displayed rate names its own denominator in `DENOMINATORS`
 | `rim_fg_percentage` | `rim_attempts` |
 | `handler_ppp_vs_over` | `handler_picks_vs_over` |
 
-The pick side of that table is **generated**, not typed: the picks file repeats the
-same metric stems across two roles, ten coverages and three floor spots, so the
-regularity does the work and only the stems are listed. A test enforces the whole
-map: every rate a view displays must declare a denominator that exists in the data.
-A missing denominator fails the test suite rather than falling back silently.
+### 3.2 Minimums and two-level filtering
 
-### 3.2 Two stages, two different questions
-
-| Stage | Control | Question | Scope |
+| Level | Control | Question | Scope |
 |---|---|---|---|
-| **The league** | the scope bar: games played, shots taken, traded | *Who counts as a player at all?* | The whole app |
-| **The sample** | the view's own count | *Can this one number be trusted?* | Recomputed per metric and per split |
+| **The whole dataset** | the scope bar: games played, shots taken, traded | *Which players are not to be considered in the dataset (and in the percentile calculation)?* | The whole app |
+| **The sample inside it** | the view's own count | *Which players are hidden for now?* | Recomputed per metric and per split |
 
-They are never merged. The first decides who is being looked at and what every
-standing is measured against; the second decides whether a given number is worth
-printing.
+They are never merged. The first decides which players are admitted into the dataset and into
+the percentile calculation, the second whether a number is worth showing.
 
-**The scope bar is one control over one working dataset.** It sits at the top of all
-three pages, it holds the same answers on each — narrow the league on a board and
-the shortlist is narrowed with it — and the line under it says what it costs:
-*213 of 299 players are the league here.* A reader shown 213 names has no way of
-knowing whether the file holds 220 or 500, and the two answers make the same list
-mean different things.
-
-Team and the name search sit in the same bar but do **not** define the league; they
-narrow what is on screen. Ranking a man against the six team-mates a club filter
-left standing — or against himself, after typing his name — would leave every
-percentile in the app describing a population nobody can see.
+The scope bar holds the same answers on all three pages, so narrowing the league on a board
+narrows the shortlist too. The line under it says what it costs: *213 of 299 players are the
+league here.*
+Team and name search sit in the same bar but do **not** define the league, otherwise a reader
+who typed a name would be ranked against himself (and the percentiles would be wrong).
 
 ### 3.3 The league bar: fifteen games, one shot a game
 
-Both defaults are **deliberately conventional rather than derived**. Public
-leaderboards gate on a round, symbolic number a reader can repeat — the NBA's
-three-point percentage title requires **82 made threes**, which is simply *one a
-game over an 82-game season*. Nobody computed 82 from a variance argument; it is a
-figure people can argue with, which is the point.
+Both defaults are round numbers. The NBA three-point title needs **82 made threes**: one a game
+over 82 games. It comes from no variance calculation, which is why it can be discussed.
 
-Applied here: **one attempt per official game**. Over a 34-round ACB regular season
-that is 34 shots, rounded up to **35** so it lands on a notch of a control that
-moves five at a time. With fifteen games beside it, **213 of the 299 players in the
-two files are the league**.
+I decided on one attempt per official game. Over a 34-round ACB regular season that is 34
+shots, rounded up to **35** so it lands on a notch of a slider that moves five at a time. With
+fifteen games beside it, **213 of the 299 players are kept**.
+That number is easy to change, as the brief asks.
 
-Two deliberate differences from the NBA convention:
+### 3.4 Pick and roll: one bar per role, then one per coverage
 
-* **The bar is on attempts, not on makes.** Gating a percentage leaderboard on
-  *made* shots selects on the outcome being measured — a 30% shooter needs far more
-  attempts to qualify than a 45% one. Attempts are neutral.
-* **It is low on purpose, and one click from anything else.** It keeps a percentage
-  built on five shots out of a ranking; it is not there to reduce the app to volume
-  scorers. Games run Any / 10 / 15 / 20 / 25, shots Any / 15 / 25 / 35 / 50 / 75 / 100.
+**10 picks for the ball handler, 20 for the screener.** A screener sets screens all game, a
+handler runs the ones his team calls for him, so one bar for both would rank two jobs on a
+single scale. At 10 and 20, 141 handlers and 150 screeners are measured, against 102 and 103 at
+a common bar of 50.
 
-Stated per game rather than as a bare number, because 35 is not a figure anybody can
-place on its own, while *one shot a game* is a bar a reader can agree or disagree
-with.
+**Then each pick-and-roll coverage split gets that bar cut to how often the league plays it.**
 
-### 3.4 Pick and roll: a split is asked for the share of a season the whole is
+So the bar is `role bar × the coverage's league share`, rounded **down** to a notch the slider
+can reach, never below 1. A test recomputes the shares off the files, so the constants cannot
+go stale:
 
-**10 picks for the ball handler, 20 for the screener.** A screen is not a shot, and
-the two roles are not the same job either: a screener sets screens all game while a
-handler runs the ones his team calls for him. Their volumes are not comparable, and
-one bar for both would rank two different jobs on a single scale. At 10 and 20, 141
-handlers and 150 screeners are measured — a rotation's worth of each, against 102
-and 103 at a common bar of 50.
+| Split | League share | Bar | Eligible (of the 213) |
+|---|---|---|---|
+| Ball handler vs Over | 66.7% | **5** | 122 |
+| Ball handler vs Switch | 16.4% | **1** | 147 |
+| Ball handler vs Under | 15.9% | **1** | 143 |
+| Ball handler vs Ice | 0.6% | **1** | 67 |
+| Ball handler vs Blitz | 0.3% | **1** | 45 |
+| Screener vs Show | 45.1% | **5** | 142 |
+| Screener vs Soft (drop) | 37.1% | **5** | 145 |
+| Screener vs Switch | 16.4% | **1** | 198 |
+| Screener vs Ice | 0.6% | **1** | 55 |
+| Screener vs Blitz | 0.3% | **1** | 37 |
 
-**Then each split gets that bar cut to how often the league plays it.** A flat 25
-picks per coverage was the same bar asked five times over, and it asked far more of
-a split than the board asks of the whole: a handler is measured from ten screens,
-yet needed twenty-five of them played one way.
+### 3.5 The controls
 
-So the bar is `role bar × the coverage's league share`, rounded **down** to a notch
-the slider can reach, never below 1. The shares are measured from the files and a
-test recomputes them, so the constants cannot go stale:
+**Every bar belongs to the reader.** The defaults are opinions, written here and moveable on
+screen:
 
-| Split | League share | Bar | Eligible (of the 213) | *Was, at a flat 25* |
-|---|---|---|---|---|
-| Ball handler vs Over | 66.7% | **5** | 122 | 97 |
-| Ball handler vs Switch | 16.4% | **1** | 147 | 60 |
-| Ball handler vs Under | 15.9% | **1** | 143 | 54 |
-| Ball handler vs Ice | 0.6% | **1** | 67 | 0 |
-| Ball handler vs Blitz | 0.3% | **1** | 45 | 0 |
-| Screener vs Show | 45.1% | **5** | 142 | 83 |
-| Screener vs Soft (drop) | 37.1% | **5** | 145 | 67 |
-| Screener vs Switch | 16.4% | **1** | 198 | 58 |
-| Screener vs Ice | 0.6% | **1** | 55 | 0 |
-| Screener vs Blitz | 0.3% | **1** | 37 | 0 |
+* The **scope bar**: five controls at the top of every page, always visible, with the league
+  count written under it.
+* The **view minimum**: one slider per view, in a panel under it, running from 0 to the highest
+  value actually present in the CSV for that column.
+* Sliders step in fives, so **every default sits on a notch it can return to**.
+* The panel is **collapsed with its defaults applied**, so the board is useful without ever
+  opening it.
+* Under it, a **`Show players below the minimum` toggle**, left on by default. Hiding them would
+  hide the reason they are not comparable.
 
-Every coverage roughly doubles, and the two rare ones go from **nobody at all** to
-45 and 67 players. At a bar of one the number is thin and the app says so: the pick
-count sits next to every figure, on the board and on the card, so what the reader is
-being shown is never hidden from him. Raising it is one drag of the slider.
+### 3.6 Percentiles: one pool, everywhere
 
-### 3.5 The controls, and what they are allowed to be
+A percentile places a number against the league. A scout reads *86th percentile* faster than
+*0.412*.
 
-**Every bar in the app is a control the reader owns.** The defaults are opinions,
-stated in this file and moveable on screen — no number is applied that cannot be
-seen and changed:
+**The pool is the scope bar's league, on every page, view, figure and radar spoke.**
 
-* The **scope bar** is a row of five controls at the top of every page, always
-  visible, with the league count written under it.
-* The **view minimum** is a slider in a panel under it, one per view, running from 0
-  to the highest value actually present in the CSV for that column — never a
-  hard-coded ceiling, so a split where nobody clears 10 events cannot be given a
-  misleading 500-wide slider.
-* Every slider steps in fives, so **every default sits on a notch it can return to**.
-  A bar of eight, reachable from neither five nor ten, is one the reader loses the
-  first time he nudges the control. Bars of one are the exception: they open below
-  the first stop, and zero — everybody, counts on show — is the way back.
-* The panel is **collapsed with its defaults already applied**: the board is useful
-  without ever opening it, and complete the moment it is opened.
-* Under the slider, a **`Show players below the minimum` toggle**. Left on, everyone
-  stays visible — greyed, pushed under the measured players, numbers intact; off,
-  they disappear. Hiding them by default would hide the reason they are not
-  comparable, and a table that silently drops a third of the league is one nobody
-  can audit.
+* **Percentiles are computed on every run, never read from a file.** A stored one would be stale
+  as soon as the scope bar moves, and writing to `data/` is not allowed anyway. `rank(pct=True)`
+  on 300 rows costs microseconds.
+* **Counts are turned into percentiles too**, not just rates: shots, threes, picks, games.
+  *615 picks* means nothing until it is also *96th in the league*.
+* **Values and percentiles give the same order**, since a percentile is the raw value
+  re-expressed against the same pool. The switch changes what is printed, not who comes first.
 
-### 3.6 What a minimum does to a player
+### 3.7 A blank is not a low number
 
-* He is **greyed out with his numbers intact**, and stays pinned under the measured
-  players **whatever the sort order** — sorting is two-tier by construction, so a
-  header click never floats a 4-shot player to the top.
-* **He keeps his percentile.** The standing comes from the scope bar's league, not
-  from the view's bar, so it does not depend on where the slider sits: the grey row
-  is what says the sample is thin, and it says it without also deleting the one
-  number that places him.
-* If he is the player currently loaded, **his card is that message and nothing
-  else** — no figures, no breakdown. Everything under it would be computed on the
-  sample the reader has just been told is too thin to judge him on, and a number
-  printed under a warning is still a number somebody reads off the screen. The
-  message **names the panel that would bring him back**, because *"Only 12 guarded
-  shots all season"* is the reader's own doing only if he knows which control he
-  set — unless the count is zero, in which case lowering the bar would not bring him
-  back, and promising it would be a lie.
-* Context columns carry their own fixed floor, independent of the slider: Open 3PT%
-  blanks below 10 open threes. **Greyed and blanked mean two different things** —
-  a greyed *row* is "this player is not measured on the metric this view is about";
-  a blanked *cell* is "this particular number does not have the sample".
+**Missing values stay at the bottom of a column whichever way it is sorted.** The grid's own
+sorting floats empty cells to the top of an ascending column, which reads as *these players are
+the worst at this*. A player with no picks against the blitz has no number at all.
 
-### 3.7 Percentiles: one pool, everywhere
+So both tables set their own row order. Turning on column selection in `st.dataframe` disables
+its built-in sorting, so a header click arrives as an event and the app sorts with
+`na_position="last"` in both directions. That is also what keeps greyed players under measured
+ones on the boards. The line under each table says so.
 
-Percentiles were added so a number can be placed against the league instead of read
-in a vacuum — a scout reads *86th percentile* faster than *0.412*.
+### 3.8 Normalisation
 
-**The pool is the scope bar's league, and it is the same on every page, every view,
-every figure and every spoke of the radar.** Three pools were tried first — the
-view's eligible players on the boards, the whole file on the shortlist, one
-population per radar axis — and it was the wrong answer: a standing that moved
-whenever a slider moved is a number the reader cannot carry from one screen to the
-next, which is the only thing a percentile is for.
+**Rate and volume stay apart, and the count is always on screen**, next to the rate it produced.
 
-Four rules follow from it:
+**Shares carry no minimum.** `rim_attempt_rate`, the pick spots on the floor, the coverage
+breakdown — these describe *what a player does*, not how well he does it, and a breakdown of 40
+attempts is still an accurate breakdown of 40 attempts. Only accuracy figures are gated, and a
+total is never gated: a total is a total.
 
-* **Percentiles are computed on every run, never read from a precomputed file.** The
-  pool is whatever the scope bar leaves standing, so a stored percentile would be
-  stale the moment it moves — and writing to `data/` is not allowed anyway.
-  `rank(pct=True)` on 300 rows costs microseconds.
-* **Counts are placed too**, not only rates: shots taken, threes taken, picks run,
-  games played. Where a player's volume sits among his peers is a fact a scout
-  reads, and *615 picks* means nothing until it is also *96th in the league*. The
-  table opens on values, so nothing is replaced — the switch is one click.
-* **Values and percentiles order the table identically** — a percentile is the raw
-  value re-expressed against the same pool — so the switch changes what is printed,
-  never who comes first. Offering two sorts would be a false choice.
-* On the radar, an axis a player has too few events for is **left empty rather than
-  drawn at zero**, which would read as a weakness he has not shown. A dotted ring at
-  the fiftieth percentile marks the middle of the league: outside it is above
-  average, inside it below.
+**No per-36 or per-40.** Neither file has a minutes column (§4), so it is impossible, not a
+design choice. Everything is per shot, per pick or per game.
 
-A per-cell blue wash behind the percentile columns was built and then dropped. It
-read well, but a background computed for every cell of a hundred-column table is a
-style rule per cell for the browser to resolve, and the grid became slow enough to
-feel on every scroll. Nothing is worth that.
+**Ratios stay on their 0–1 scale in the code**; multiplying by 100 happens in
+`src/ui/format.py` and nowhere else.
 
-### 3.7bis A blank is not a low number
-
-Both tables own their row order rather than letting the grid sort, and this is the
-second reason why. **Missing values sit at the bottom of a column whichever way it
-is sorted.** The grid's own sorting floats every empty cell to the top of an
-ascending column, which reads as *these players are the worst at this* — but a
-player with no picks against the blitz has not produced the league's worst points
-per pick on them; he has no number at all.
-
-Enabling column selection on `st.dataframe` switches its built-in sorting off, so a
-header click arrives as an event and the app sorts with `na_position="last"` in
-both directions. That is also what keeps the greyed players pinned under the
-measured ones on the boards, whatever the reader sorts on. The line under each
-table says so.
-
-### 3.8 Normalisation: what is normalised, and what is not
-
-**Rate and volume are kept apart, and the count is always on screen.** Every rate
-sits next to the count it was computed from.
-
-**Shares carry no minimum at all.** `rim_attempt_rate`, the pick spots on the
-floor, the coverage breakdown — these describe *what a player does*, not how well
-he does it, and a breakdown of 40 attempts is still an accurate breakdown of 40
-attempts. Only accuracy figures are gated. A total is likewise never gated: a total
-is a total.
-
-**No per-36 or per-40 anything.** There is no minutes column in either file (§4),
-so minute normalisation is impossible rather than merely unattractive. Everything
-is normalised per shot, per pick, or per game.
-
-**Ratios stay on their 0–1 scale everywhere in the code**; multiplication by 100
-happens in `src/ui/format.py` and nowhere else.
-
-Five derived normalisations, each with a reason:
+Five derived normalisations:
 
 | Derived | How | Why not the obvious way |
 |---|---|---|
@@ -428,128 +265,81 @@ Five derived normalisations, each with a reason:
 | Contested 2PT / 3PT share | `contested_X_attempts / X_attempts` | The file ships the contested share of *all* shots only, which mixes layups and threes. |
 | Assisted share | `assisted_shots / mades` | A count in the file, a share nowhere. |
 
-Every division goes through `safe_ratio`, which returns **NaN, not 0**, when the
-denominator is zero: a player who never took a corner three has an *unknown*
-corner-three percentage, and printing 0% there would invent a fact.
+Every division goes through `safe_ratio`, which returns **NaN, not 0**, on a zero denominator: a
+player who never took a corner three has an *unknown* corner-three percentage, not a 0% one.
 
-**Median reference lines are drawn on the scope bar's league, and on the players who
-were measured inside it.** Two conditions, and both matter. The pool is the same one
-the percentiles use, so a card's two references agree instead of describing two
-different populations. Within it, each line is the median *among the players
-clearing that slice's own count*: taken over the whole file,
-`screener_ppp_at_stepUp` has a median of **0.09**, while among the players with at
-least 25 picks there it is **0.32**. The first number is dragged down by players
-with two or three step-up screens who scored on none of them, and comparing a
-measured player against it makes almost everybody look good.
+**Median lines are drawn on the scope bar's league, and among the players measured inside it.**
+Same pool as the percentiles, so a card's two references agree. And each line is the median
+*among players clearing that slice's own count*: `screener_ppp_at_stepUp` has a median of **0.09**
+over the whole file, but **0.32** among players with at least 25 picks there. The first is
+dragged down by players with two or three step-up screens who scored on none of them.
 
-### 3.9 Regression to the mean was considered and dropped
+### 3.9 Regression to the mean: considered, then dropped
 
-Shrinking each percentage toward the league average — adding a few phantom
-league-average attempts to every player — was the first idea for handling small
-samples, and it was abandoned after looking at what comparable products actually
-do.
+Shrinking each percentage toward the league average — adding a few phantom league-average
+attempts to every player — was my first idea for small samples. I dropped it:
 
-* **Market scouting tools work on thresholds.** Synergy, InStat and the public
-  leaderboards all gate; none of them publishes a shrunk percentage as *the*
-  number.
-* **A threshold is explainable to a coach.** "He is 39% from three on 120 attempts"
-  survives a conversation. "His regularised three-point percentage is 36.8%" does
-  not, and it is not a number anyone will quote back.
-* **The shrunk value is not the player's value.** It is an estimate of his true
-  talent, which is a different question from the one a shot chart answers. Mixing
-  the two in one column would make every printed number quietly non-additive.
-* **Basketball sample sizes here are small enough that shrinkage would do the
-  filtering anyway**, but invisibly: a 5-attempt player pulled to the league mean
-  looks *average*, not *unmeasured*, which is strictly worse information than a
-  greyed row.
-
-If it ever returns it will be an **optional "adjusted" column beside the raw one,
-never in its place**.
+* **Scouting tools work on thresholds.** Synergy, InStat and the public leaderboards all gate;
+  none publishes a shrunk percentage as *the* number.
+* **A threshold can be explained to a coach.** "39% from three on 120 attempts" survives a
+  conversation; "his regularised three-point percentage is 36.8%" does not.
+* **The shrunk value is not the player's value.** It estimates his true level, which is a
+  different question from the one a shot chart answers.
+* **It filters anyway, but invisibly**: a 5-attempt player pulled to the league mean looks
+  *average*, not *unmeasured*, which is worse than a greyed row.
 
 ### 3.10 Filtering on the shortlist
 
-**A criterion is one condition: the bar the reader typed.** It used to be two — the
-value, and a number of events silently required behind it — so asking for 40% from
-three also asked, invisibly, for forty attempts. That is a reason a name could be
-missing that nobody reading the screen could discover, and no amount of it being
-statistically sensible makes an unwritten filter acceptable. It is gone.
-
-What guards the sample instead is **the scope bar at the top of the page**, the same
-one the boards answer to: it is visible, it is two clicks wide, and it says how many
-players it leaves. One place decides who the league is; the criteria then say which
-of them the reader is looking for.
-
-**A bar can be set as a value or as a place in the league**, and the line under it
-states both: *39.5% — 80th percentile, keeping the top 20% of the 125 players who
-have this number*. Percentages are typed as percentages, and the box opens on the
-median rather than at zero. A rate opens in percentile mode ("the top 20%" is the
-question a scout arrives with); a count opens in value mode, because nobody asks
-for a player in the top 20% of games played.
-
-**The page opens on no criterion at all** — the perimeter every page starts from is
-the scope bar above, so the first row is empty and the reader writes the first bar
-himself. There is no panel of minimums either: a board gates one metric at a time,
-so a panel of sliders makes sense there; a shortlist shows every metric at once, and
-a second battery of sliders beside the bars he wrote would be a minimum nobody asked
-for. The floors a board applies to its context columns still hold here, so the
-shortlist is never the one place a thin number gets through.
+**A bar can be set as a value or as a place in the league**, and the line under it states both:
+*39.5% — 80th percentile, keeping the top 20% of the 125 players who have this number*.
+Percentages are typed as percentages, and the box opens on the median rather than at zero. A rate
+opens in percentile mode ("the top 20%" is the question a scout arrives with).
 
 ---
 
-## 4. Assumptions, and limitations found in the data
+## 4. Assumptions, and limits found in the data
 
 ### `avg_shot_distance` is stored in feet, not metres
 
-The glossary labels it *metres*. The distribution says otherwise: the **median**
-player averages **14.43**. Read as metres, that puts the median shot in this league
-beyond half court, on a 28-metre floor.
+The glossary labels it *metres*. The distribution says otherwise: the **median** player averages
+**14.43**. Read as metres, the median shot in this league would come from beyond half court, on a
+28-metre floor.
 
-Read as feet it resolves exactly. Among the 234 players clearing 35 attempts, the
-deepest averages **22.20 ft = 6.77 m** — the FIBA three-point line (6.75 m) to the
-centimetre — and the most rim-bound averages **3.27 ft = 1.00 m**, a layup. The app
-converts before display, leaves the raw column untouched, and a test guards the
-conversion.
+Read as feet everything lines up. Among the 234 players clearing 35 attempts, the deepest averages
+**22.20 ft = 6.77 m** — the FIBA three-point line (6.75 m) to the centimetre — and the most
+rim-bound averages **3.27 ft = 1.00 m**, a layup. The app converts before display, leaves the raw
+column untouched, and a test guards the conversion.
 
 ### Blitz and ice are rare coverages in the ACB
 
-Across all 292 players the highest count is **5 picks against a blitz** (both
-roles) and **7 / 9 against an ice**, with medians of 0. This is not missing data:
-Spanish defences simply play them very little.
+Across all 292 players the highest count is **5 picks against a blitz** (both roles) and **7 / 9
+against an ice**, with medians of 0. This is not missing data: Spanish defences play them very
+little.
 
-They are shown like every other coverage, with a low default bar and a note on
-screen saying the coverage is rare. Hiding a split because it is rare would answer
-a scouting question — *how does he handle a blitz?* — with silence.
-
-The one place this forced an exception: on the player card's coverage figure the
-bar is **one pick**, not twenty-five. At 25, **not a single player in the league**
-had a figure against the blitz or the ice, which reads as broken data rather than
-as a rare coverage. That figure is a card, not a ranking: nobody is placed against
-anybody, and the pick count is printed beside every slice, so the reader judges the
-sample himself.
+They are shown like every other coverage, with a low default bar and a note on screen saying the
+coverage is rare. *How does he handle a blitz?* is a real scouting question, so hiding the split
+would leave it unanswered.
 
 ### No position column, and no minutes column
 
-* **No position.** The closest available stand-in is the ball handler / screener
-  split, which is very nearly disjoint (only 4 of 292 players record 50+ picks in
-  both roles). It is shown on the player card and never used to filter silently.
-  Consequence: **"compare him to other bigs" is not a question this app can
-  answer**, and it does not pretend to.
-* **No minutes.** Nothing can be normalised per 36 or per 40 minutes.
-  `games_played` counts games with **at least one tracked event in that file**,
-  which is not playing time and not the same as appearing in a box score.
+* **No position.** The closest stand-in is the ball handler / screener split, which is very nearly
+  disjoint (only 4 of 292 players record 50+ picks in both roles). It is shown on the card and
+  never used to filter silently. So **"compare him to other bigs" is not a question this app can
+  answer**.
+* **No minutes.** Nothing can be normalised per 36 or per 40 minutes. `games_played` counts games
+  with **at least one tracked event in that file**, which is not playing time.
 
 ### `games_played` runs from 1 to 44
 
-For a 34-round regular season: the top of the range includes play-offs. So 34 is
-the **length of the regular season** and is used only to express "one shot per
-game"; it is never used as a maximum and no total is hard-coded anywhere.
-`games_played` and `appearances` are identical row for row in both files, so only
-one of them is exposed.
+For a 34-round regular season: the top of the range includes play-offs. So 34 is the **length of
+the regular season** and is only used to express "one shot per game"; it is never a maximum, and
+no total is hard-coded anywhere. `games_played` and `appearances` are identical row for row in
+both files, so only one is exposed.
 
-### The splits do not partition the total
+### The splits do not add up to the total
 
-This one is easy to miss and quietly wrong if missed. **None of the shot splits sum
-back to the total attempts**, because some shots carry no classification:
+**None of the shot splits sum back to total attempts**, because some shots carry no
+classification:
 
 | Split | Coverage of total attempts | Worst single player |
 |---|---|---|
@@ -560,166 +350,123 @@ back to the total attempts**, because some shots carry no classification:
 | The 5 contest levels | 97.5% | 15 shots |
 | The 14 shot types | 97.5% | 15 shots |
 
-Consequences the app applies: shares are always computed against the **total**, so
-they legitimately fall short of 100% and are never renormalised to it; the
-mid-range share is a **sum of two zones, never `100 − rim − three`**; and the shot
-chart is described as covering *most* of a player's attempts rather than all.
+So shares are always computed against the **total**, legitimately fall short of 100% and are
+never renormalised; the mid-range share is a **sum of two zones, never `100 − rim − three`**; and
+the shot chart is described as covering *most* of a player's attempts.
 
-By contrast, two splits *do* partition: two-pointers plus three-pointers equal
-total attempts exactly for all 295 players, and the five coverages account for
-98–100% of a player's picks — which is what makes a 100% stacked bar the right
-shape for the coverage figure.
+Two splits do add up: two-pointers plus three-pointers equal total attempts exactly for all 295
+players, and the five coverages account for 98–100% of a player's picks, which is what makes a
+100% stacked bar the right shape for the coverage figure.
 
-`zone_three_attempts` is likewise **≤ `three_attempts`** for 203 players (up to 17
-fewer), for the same reason: some threes carry no zone.
+### eFG% goes above 1.0, but not on the column you would expect
 
-### eFG% legitimately exceeds 1.0 — but not on the column you would expect
+`efg_percentage` itself tops out at exactly **1.00** (two players, on 6 and 3 shots all season).
+The split columns go higher: **`cns_efg_percentage` reaches 1.50**, and contested and uncontested
+eFG both reach 1.25 — all three on **two attempts**. eFG can reach 1.5 when every shot is made and
+every one is a three, so nothing is clipped at 1.
 
-`efg_percentage` itself tops out at exactly **1.00** (two players, on 6 and 3 shots
-all season). The split columns go higher: **`cns_efg_percentage` reaches 1.50**, and
-contested and uncontested eFG both reach 1.25 — all three on **two attempts**. eFG
-can reach 1.5 by construction (all shots made, all of them threes), so nothing is
-clipped at 1.
+These values are also the best illustration of why the minimum exists: every one of them belongs
+to a player the 35-shot bar removes from the ranking.
 
-These values are also the cleanest illustration of why the minimum exists: every
-one of them belongs to a player the 35-shot bar removes from the ranking.
+### Zero and missing are correctly separated in the source
 
-### Zero and missing are correctly distinguished in the source
+A player with no picks as ball handler carries **NaN** in `handler_ppp`, not 0 (72 players). The
+243 players who never faced a blitz carry NaN in `handler_ppp_vs_blitz`, and the 201 who never
+attempted a heave carry NaN in `cst_heave_fg_percentage`, not 0%.
 
-The provider is careful here, and the app matches it. A player with no picks as
-ball handler carries **NaN** in `handler_ppp`, not 0 (72 players). The 243 players
-who never faced a blitz carry NaN in `handler_ppp_vs_blitz`. The 201 players who
-never attempted a heave carry NaN in `cst_heave_fg_percentage`, not 0%.
-
-So the app's own divisions return NaN on a zero denominator (`safe_ratio`), and
-NaN prints as a blank rather than as a zero. Treating the two as the same would
-turn "never tried" into "tried and failed" on every card in the app.
+So the app's own divisions return NaN on a zero denominator (`safe_ratio`), and NaN prints as a
+blank. Treating the two as the same would turn "never tried" into "tried and failed" on every
+card in the app.
 
 ### Dead and near-empty columns
 
-* **24 pick columns never carry a number.** 23 are zero for every player,
-  including the whole `no_outcome_pick` family and `screener_ft_attempts_in_pick` —
-  so the screener's points-per-shot in pick is field-goal only, while
-  `handler_ft_attempts_in_pick` reaches 79. The twenty-fourth,
+* **24 pick columns never carry a number.** 23 are zero for every player, including the whole
+  `no_outcome_pick` family and `screener_ft_attempts_in_pick` — so the screener's points-per-shot
+  in pick is field-goal only, while `handler_ft_attempts_in_pick` reaches 79. The twenty-fourth,
   `handler_fg2_pct_vs_blitz`, is empty in every row. None is displayed.
-* **89 of the 599 pick columns are over half empty**, almost all of them rare
-  coverage × metric combinations.
-* **4 shot columns are zero for every player**: `cl_blocked_mades`, `_points`,
-  `_fg_percentage`, `_points_per_shot`. That is logically correct rather than a
-  defect — a blocked shot is by definition not made — and it is why "blocked" is
-  treated as a contest level and not as a shot outcome.
-* **8 shot columns are over half empty**: the percentage and points-per-shot of the
-  rarest shot types (heave, leaner, lob, post fadeaway), NaN wherever the player
-  never attempted one.
+* **89 of the 599 pick columns are over half empty**, almost all rare coverage × metric.
+* **4 shot columns are zero for every player**: `cl_blocked_mades`, `_points`, `_fg_percentage`,
+  `_points_per_shot`. That is correct rather than a defect — a blocked shot is by definition not
+  made — and it is why "blocked" is treated as a contest level and not as a shot outcome.
 
 ### Traded players hold one row each
 
-Eight players changed team during the season. The glossary confirms the row still
-aggregates their whole season, while `team_name` shows only the last club — so a
-team-level total would count them in the wrong place. **They are not
-de-duplicated** (there is nothing to de-duplicate: one row, one player); a toggle
-on the boards removes them when the reader is looking at a team.
+Eight players changed team during the season. The glossary confirms the row still aggregates their
+whole season, while `team_name` shows only the last club, so a team-level total would count them in
+the wrong place. **They are not de-duplicated** (one row, one player); a toggle on the boards
+removes them when the reader is looking at a team.
 
 ### The two files carry different rosters
 
-292 pick rows against 295 shot rows: **288 players in both, 4 in the picks file
-only, 7 in the shooting file only, 299 in total.** The join is explicit, on
-`player_id` and never on `player_name`, and its provenance is kept in a `source`
-column rather than assumed away. The shortlist joins outer, because dropping either
-side would quietly narrow the search. A board loads its own file plus **exactly one
-column from the other** — the season shot total, so the scope bar can ask its second
-question on every page. One consequence is deliberate: the 4 players who exist only
-in the picks file fall outside a scope that asks for shots, which is right, since
-they have no shooting events at all.
+292 pick rows against 295 shot rows: **288 players in both, 4 in the picks file only, 7 in the
+shooting file only, 299 in total.** The join is explicit, on `player_id` and never on
+`player_name`, and where each row came from is kept in a `source` column. The shortlist joins
+outer, because dropping either side would narrow the search. A board loads its own file plus
+**exactly one column from the other**: the season shot total, so the scope bar can ask its second
+question on every page. The 4 players who exist only in the picks file therefore fall outside a
+scope that asks for shots, which is right, since they have no shooting events.
 
-Player names happen to be unique in both files, but the id is still the key —
-uniqueness in one season is not a guarantee.
+Player names happen to be unique in both files, but the id is still the key.
 
-### One thing the data does very well
+### The glossary covers every column
 
-`metric_glossary.csv` describes **every column of both files, with no orphan rows
-in either direction** — 599 + 228 = 827, exactly. That is what makes it safe to
-treat the glossary as the single naming authority: every header, tooltip, criterion,
-radar spoke and card tile in the app prints the column's own `display_name`, so the
-interface cannot say one thing where the data dictionary says another, and a reader
-moving between the app and the CSV never has to translate.
+`metric_glossary.csv` describes **every column of both files, with no orphan rows in either
+direction** — 599 + 228 = 827, exactly. That is what makes it safe to treat the glossary as the
+single naming authority: every header, tooltip, criterion, radar spoke and card tile prints the
+column's own `display_name`, so the interface cannot say one thing where the data dictionary says
+another.
 
 ---
 
 ## 5. The admin page
 
-A prototype for whoever owns the tool: what it is used for, and whether the
-opinions baked into it are right.
+A prototype for whoever owns the tool: what it is used for, and whether the opinions baked into it
+are right.
 
 ### A disclosure, and it belongs at the top of this section
 
-**This page was designed by an AI assistant, not by me.** I have very little
-experience with product analytics and no clear idea of what an admin screen for a
-scouting tool ought to contain, so rather than guess I described the structure of
-the app — three reader-facing pages, one scope bar reaching all of them, a minimum
-per view, a player card that opens — and asked the assistant which readings were
-worth putting on screen. I reviewed what came back, kept it, and wrote the section
-below to explain it.
+**This page was designed by an AI assistant, not by me.** I have very little experience with
+product analytics, so rather than guess, I described the app and asked the assistant which
+readings were worth putting on screen. I reviewed what came back and kept it.
 
-Everything else in this repository was specified decision by decision: the
-thresholds and why they sit where they do, which pool percentiles are measured on,
-the rule that no label is ever typed by hand, what each figure is allowed to hide.
-This page is the one place where that is not true, and saying so seemed better than
-letting it pass as the same kind of work. It is a prototype, and it is labelled as
-one.
+§7 says how the whole repository was written, and most of the code came from the same assistant.
+The difference is that everywhere else I made the calls: the thresholds and why they sit where they
+do, which pool percentiles are measured on, the rule that no label is ever typed by hand. Here I
+made none.
 
 ### What is on the page
 
-| Block | What it shows |
-|---|---|
-| **Journal** | Where the file is, how many screens it holds, and a **Record this session** checkbox that stops the writing. Before anything has been recorded the page says so and stops there. |
-| **Activity** | Sessions, screens, median session length and screens per session, over a daily chart of the two. |
-| **Which views are used** | The ten most-visited page-and-view pairs, as a ranked bar. |
-| **Who gets opened** | The ten players opened in the most sessions. |
-| **Are the bars set where they should be?** | Two tables — the scope bar, then one row per view — giving what it opens on, the median choice, how often it was moved, and a plain-language reading. |
-| **Did the visit go anywhere?** | Sessions → narrowed something → opened a player, as a three-step funnel. |
-| **Recent sessions** | A folded table: when each session ran, how long, how many screens, pages and players. |
+Each block answers a decision rather than filling space.
 
-**It runs on a local journal and nothing else.** One JSONL line per state a reader
-put the app in, appended to `logs/usage.jsonl` — never to `data/`, and the folder is
-out of version control. No network call, no account, no login. The only identifier
-is a **random twelve-character string drawn once per browser session**, and the
-search box is never written down: the journal records *that* a name was searched
-for, never which. What a scout is looking for is the one thing on that screen worth
-calling private.
+| Block | What it shows | The decision behind it |
+|---|---|---|
+| **Journal** | Where the file is, how many screens it holds, and a **Record this session** checkbox that stops the writing. | Recording has to be visible and reversible. |
+| **Activity** | Sessions, screens, median session length and screens per session, over a daily chart. | Is anyone using it, and do they stay? |
+| **Which views are used** | The ten most-visited page-and-view pairs. | A lens nobody ever selects is a lens to rethink — invisible from inside the code. |
+| **Who gets opened** | The ten players opened in the most sessions. | The closest thing here to interest in a player. |
+| **Are the bars set where they should be?** | Two tables — the scope bar, then one row per view — with what it opens on, the median choice, how often it was moved, and a plain reading. | The main reason for the page. |
+| **Did the visit go anywhere?** | Sessions → narrowed something → opened a player. | A session that stops at step one found nothing, or could not work out how to. |
+| **Recent sessions** | A folded table: when each session ran, how long, how many screens, pages and players. | Enough detail to check a strange day. |
 
-**One line per state, not per rerun.** Streamlit re-executes the whole script on
-every widget touch, so writing unconditionally would fill the file with copies of
-the same screen. Each event is compared with the last one written and dropped if it
-matches, which makes a line mean *the reader changed something* rather than *the
-reader moved the mouse*.
+**The threshold reading is the main block.** Every default in this README is a guess written into
+the source. If readers move the same slider the same way every time, the guess is wrong, and only
+a record of what they did can show it. So the table prints, per view, what it opens on, the median
+choice, how often it was moved, and a sentence saying what to do: *"Moved up most of the time —
+consider 25"*, or *"Left alone — the default holds"*.
 
-What it reports, chosen to answer a decision rather than to look busy:
+**It runs on a local journal and nothing else.** One JSONL line per state a reader put the app in,
+appended to `logs/usage.jsonl` — never to `data/`, and the folder is out of version control. No
+network call, no account, no login. The only identifier is a **random twelve-character string drawn
+once per browser session**, and the search box is never written down: the journal records *that* a
+name was searched for, never which.
 
-| Reading | The decision behind it |
-|---|---|
-| Sessions, screens, median session length, screens per session | Is anyone using it, and do they stay? |
-| **Which views are actually used** | A lens nobody ever selects is a lens to rethink — invisible from inside the code. |
-| Who gets opened | The closest thing here to interest in a player. |
-| **What the bars were actually set to, against what they open on** | The one that justifies the page. |
-| Sessions → narrowed something → opened a player | A session that stops at step one found nothing, or could not work out how to. |
+**One line per state, not per rerun.** Streamlit re-runs the whole script on every widget touch, so
+writing unconditionally would fill the file with copies of the same screen. Each event is compared
+with the last one written and dropped if it matches, so a line means the reader changed something.
 
-**The threshold reading is the point of it.** Every default in this README is a
-guess written in the source. If readers move the same slider the same way every
-time, the guess is wrong, and no amount of reasoning inside the app can discover
-that — only a record of what they did. So the table prints, per view, what it opens
-on, what the median choice actually was, how often it was moved, and a sentence
-saying what to do about it: *"Moved up most of the time — consider 25"*, or *"Left
-alone — the default holds"*. The same is done for the scope bar, which is now the
-control that reaches everything.
-
-A checkbox at the top turns recording off for the session — visible and reversible,
-rather than a constant somebody has to edit.
-
-`src/data/usage.py` is pure functions over one frame plus a single append;
-`src/ui/tracking.py` owns the session identifier and calls it; the page only reads
-and renders. Writing can never break a page: a failed append is swallowed, because
-an app that dies for want of a log line is worse than one that keeps no log.
+`src/data/usage.py` is pure functions over one frame plus a single append; `src/ui/tracking.py` owns
+the session identifier and calls it; the page only reads and renders. A failed append is ignored,
+so a logging problem cannot break the app.
 
 ---
 
@@ -757,43 +504,74 @@ logs/                   the usage journal; out of version control
 
 Rules the code holds to:
 
-* **No pandas in `pages/`.** A page reads widgets, calls `src`, renders. Any
-  `groupby`, ratio, quantile or boolean mask lives in `src/core`. A page is a title
-  plus one call to `board.render(...)`.
-* **No column-name string outside `src/data/schema.py`**, and the 599 pick column
-  names are *constructed* (`schema.pick_column(role, metric, coverage=…)`) rather
-  than typed.
-* **No `st.*` outside `src/ui/` and `pages/`, with one deliberate exception**: the
-  `@st.cache_data` decorator on the five CSV reads in `src/data/`. No widget, no
-  rendering, nothing that draws. Core functions take a DataFrame and return a new
-  one; nothing cached is ever mutated in place.
-* **No column label written by hand.** `Column`, `Threshold` and the radar `Axis`
-  have no `label` field — it is a property that asks the glossary. The nineteen
-  columns the app computes itself carry a name *and* a definition in
-  `src/data/glossary.py`, written in the dictionary's own style, and a test fails if
-  a displayed column has neither. Only the sentences are hand-written — plot axis
-  labels, quadrant names, view descriptions — because no data dictionary supplies
-  those.
+* **No pandas in `pages/`.** A page reads widgets, calls `src`, renders. Any `groupby`, ratio,
+  quantile or boolean mask lives in `src/core`. A page is a title plus one call to
+  `board.render(...)`.
+* **No column-name string outside `src/data/schema.py`**, and the 599 pick column names are *built*
+  (`schema.pick_column(role, metric, coverage=…)`) rather than typed.
+* **No `st.*` outside `src/ui/` and `pages/`, with one exception**: the `@st.cache_data` decorator
+  on the five CSV reads in `src/data/`. Core functions take a DataFrame and return a new one;
+  nothing cached is ever mutated in place.
+* **No column label written by hand.** `Column`, `Threshold` and the radar `Axis` have no `label`
+  field — it is a property that asks the glossary. The nineteen columns the app computes itself
+  carry a name *and* a definition in `src/data/glossary.py`, and a test fails if a displayed column
+  has neither. Only the sentences are hand-written — axis labels, quadrant names, view descriptions
+  — because no data dictionary supplies those.
 * **A board does not repeat in its headers what its own controls already say.**
-  `Screener - Points Per Pick (vs Soft (Drop))` spends 28 of its 32 characters
-  repeating the lens selector and the view selector directly above it, and seven of
-  those across is a table nobody can read without scrolling sideways. The role and
-  the coverage come off where the board states them — the coverage only on a view
-  that is *about* one coverage — and both stay in the tooltip. **The shortlist keeps
-  the names whole**, since both roles are listed there and the prefix is the only
-  thing separating two columns called *Points Per Pick*.
-* **Caching where it pays**: reading the CSVs, parsing the glossary, and the column
-  catalogue (which is configuration, not data). Nothing that depends on a slider is
-  cached.
-* **Interface language stays plain.** No "sample size", "regularised" or "n≥" on
-  screen; the reader sees games, shots and picks. *Percentile* is the single
-  statistical word allowed through, because it is the working vocabulary of
-  basketball scouting — and it is printed in ordinal form (*86th percentile*). The
-  statistics live in this README.
+  `Screener - Points Per Pick (vs Soft (Drop))` spends 28 of its 32 characters repeating the two
+  selectors above it, and seven of those across need sideways scrolling. The role and the
+  coverage come off, and both stay in the tooltip. **The shortlist keeps the names whole**, since
+  both roles are listed there and the prefix is the only thing separating two columns called
+  *Points Per Pick*.
+* **What is cached**: reading the CSVs, parsing the glossary, and the column catalogue, which is
+  configuration rather than data. Nothing that depends on a slider is cached.
+* **Interface language stays plain.** No "sample size", "regularised" or "n≥" on screen; the reader
+  sees games, shots and picks. *Percentile* is the one statistical word allowed through, because it
+  is the working vocabulary of basketball scouting, and it is printed in ordinal form (*86th
+  percentile*). The statistics live in this README.
 
-`pytest -q` runs 74 tests over the core: the denominator map, eligibility,
-percentiles on the scope bar's pool, the two-tier sort and the blanks-last rule, the
-feet-to-metres conversion, the mid-range sum, the glossary naming rules, the notch
-rule on every default, the coverage shares — measured back off the CSVs, so the
-split bars cannot go stale — the colour ramp the shot chart shares with the shot
-menu, and the usage journal, including that it never writes down a search.
+`pytest -q` runs 74 tests over the core: the denominator map, eligibility, percentiles on the scope
+bar's pool, the two-tier sort and the blanks-last rule, the feet-to-metres conversion, the mid-range
+sum, the glossary naming rules, the notch rule on every default, the coverage shares — measured back
+off the CSVs, so the split bars cannot go stale — the colour ramp the shot chart shares with the
+shot menu, and the usage journal, including that it never writes down a search.
+
+---
+
+## 7. How this was built
+
+**About 95% of the code in this repository was written by an AI assistant (Claude Code). I decided
+what it had to do.** The job posting I applied to says AI-assisted development is part of how the
+team works, so this was not a problem for me, but I would rather write it down than let it be
+assumed.
+
+### Why I worked this way
+
+I had never used Streamlit before this test. The brief suggests around six hours; I am closer to
+eight. Learning the framework by hand would have come out of the analysis, which is the biggest part
+of the grade. I would still have preferred my hands on more of the code, as I normally work.
+
+### Who decided what
+
+**Mine.** Which metrics reach the screen and which are dropped. Where every bar sits and what it
+counts. One percentile pool instead of three. What each page shows, and in what order. And what got
+sent back: the tinted percentile columns, the panel of minimums on the shortlist and the second
+condition hidden inside a criterion were all built, then removed on my call.
+
+**The assistant's.** The exploration passes over the CSVs, and every line of Streamlit and Plotly.
+
+This README was written the same way: I wrote it in French with Claude's help, then had Claude
+translate it into English, which was faster than writing it twice.
+
+One rule I set at the start: **modular code, split across files by what it does, and no analysis
+inside a page file.** §6 is that rule written out. It is the part that goes wrong first in an
+AI-written repo, because a model will keep appending to one long script.
+
+### The two things I watched for
+
+**Speed.** This is the real risk, and I ran into it. The glossary was re-parsed for every tooltip,
+around 300 rebuilds per rerun and 293 ms, until it was indexed once at 2.4 ms.
+
+**Security.** There is very little surface here. No network call, no database, no credential, no
+login, no path or query typed by a user. The three CSVs ship with the repo and are only ever read.
+The one thing the app writes is its own usage journal: a local JSONL file, out of version control.
